@@ -7,6 +7,7 @@ from app.models import (
     Profile, ProfileRequest, BrowserSession,
     SessionStatus, ProfileStatus
 )
+from app.container import container_manager
 
 app = FastAPI(
     title="Browser Management API",
@@ -25,13 +26,16 @@ async def root():
 @app.post("/sessions", response_model=BrowserSession)
 async def start_session():
     session_id = str(uuid.uuid4())
+    
+    # Create actual container
+    container_id, port, live_view_url = await container_manager.create_browser_container()
+    
     new_session = BrowserSession(
         id=session_id,
         started_at=datetime.now(),
-        # TODO: Implement actual container creation and port assignment
-        container_id="temp_container_id",
-        port=9222,
-        live_view_url="http://localhost:9222"
+        container_id=container_id,
+        port=port,
+        live_view_url=live_view_url
     )
     sessions[session_id] = new_session
     return new_session
@@ -90,6 +94,7 @@ async def stop_session(session_id: str):
     if session.status == SessionStatus.STOPPED:
         raise HTTPException(status_code=400, detail="Session is already stopped")
     
-    # TODO: Implement actual container cleanup
+    # Stop the actual container
+    await container_manager.stop_container(session.container_id)
     session.status = SessionStatus.STOPPED
     return {"message": "Session stopped successfully"} 
