@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: browser-instance
+  labels:
+    app: browser-instance
+spec:
+  replicas: 2  # Initial number of browser instances
+  selector:
+    matchLabels:
+      app: browser-instance
+  template:
+    metadata:
+      labels:
+        app: browser-instance
+    spec:
+      containers:
+      - name: chrome
+        image: browserless/chrome:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
+        env:
+        - name: MAX_CONCURRENT_SESSIONS
+          value: "1"
+        - name: WORKSPACE_DELETE_EXPIRED
+          value: "true"
+        - name: WORKSPACE_EXPIRE_DAYS
+          value: "1"
+        resources:
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+          requests:
+            cpu: "500m"
+            memory: "512Mi" 

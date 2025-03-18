@@ -1,13 +1,14 @@
 from fastapi import FastAPI, HTTPException
-from typing import List, Dict
+from typing import List, Dict, Any
 import uuid
 from datetime import datetime
+from pydantic import BaseModel
 
-from app.models import (
+from models import (
     Profile, ProfileRequest, BrowserSession,
     SessionStatus, ProfileStatus
 )
-from app.container import container_manager
+from container import container_manager
 
 app = FastAPI(
     title="Browser Management API",
@@ -18,6 +19,17 @@ app = FastAPI(
 # In-memory storage
 profiles: Dict[str, Profile] = {}
 sessions: Dict[str, BrowserSession] = {}
+
+# Model for task execution requests
+class TaskRequest(BaseModel):
+    session_id: str
+    task: str
+
+# Model for task execution responses
+class TaskResponse(BaseModel):
+    success: bool
+    result: str = None
+    error: str = None
 
 @app.get("/")
 async def root():
@@ -39,6 +51,27 @@ async def start_session():
     )
     sessions[session_id] = new_session
     return new_session
+
+@app.post("/tasks", response_model=TaskResponse)
+async def execute_task(task_request: TaskRequest):
+    # Verify session exists
+    if task_request.session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # Get the session
+    session = sessions[task_request.session_id]
+    
+    # Check if session is running
+    if session.status == SessionStatus.STOPPED:
+        raise HTTPException(status_code=400, detail="Session is stopped")
+    
+    # Execute the task on the worker
+    result = await container_manager.execute_task(
+        session_id=task_request.session_id,
+        task=task_request.task
+    )
+    
+    return TaskResponse(**result)
 
 @app.post("/profiles", response_model=Profile)
 async def create_profile(profile: ProfileRequest):

@@ -28,11 +28,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python packages
-RUN pip install --no-cache-dir \
-    browser-use \
-    playwright \
-    langchain-openai \
-    python-dotenv
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
@@ -51,8 +48,8 @@ WORKDIR /home/brandpal
 # Install browser binaries as brandpal user
 RUN playwright install chromium
 
-# Copy .env file
-COPY --chown=brandpal:brandpal .env /home/brandpal/.env
+# Copy any worker scripts
+COPY *.py /home/brandpal/
 
 # Create a wrapper script to run commands with xvfb
 USER root

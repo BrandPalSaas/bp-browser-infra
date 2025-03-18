@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: browser-infra-service
+  labels:
+    app: browser-infra-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: browser-infra-service
+  template:
+    metadata:
+      labels:
+        app: browser-infra-service
+    spec:
+      containers:
+      - name: api
+        image: browser-infra-api:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+        volumeMounts:
+        - name: config-volume
+          mountPath: /home/brandpal/.env
+          subPath: .env
+      volumes:
+      - name: config-volume
+        configMap:
+          name: browser-infra-service-config 
