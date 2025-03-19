@@ -16,8 +16,8 @@ spec:
     spec:
       containers:
       - name: controller
-        image: us-central1-docker.pkg.dev/browser-infra/browser-infra/controller:latest
-        imagePullPolicy: Always
+        image: browser-controller:latest
+        imagePullPolicy: Never
         ports:
         - containerPort: 8000
         envFrom:
@@ -30,9 +30,11 @@ spec:
           requests:
             cpu: "500m"
             memory: "512Mi"
+      # Using hostAliases to map host.minikube.internal to host machine
       hostAliases:
-      - ip: "host-gateway"
+      - ip: "192.168.49.1"  # Default Minikube gateway IP
         hostnames:
+        - "host.minikube.internal"
         - "host.docker.internal"
       volumes:
       - name: config-volume

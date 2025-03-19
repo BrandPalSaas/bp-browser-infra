@@ -29,18 +29,15 @@ RUN apt-get update && apt-get install -y \
     xvfb \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python packages
+# Copy requirements first for better caching
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Install worker-specific packages
 RUN pip install playwright==1.51.0 browser-use==0.1.40
 
-# Copy common modules
-COPY common/ /app/common/
-
-# Copy worker code
-COPY worker/ .
+# Copy the application code
+COPY app /app
 
 # Install Playwright browsers
 RUN playwright install chromium
@@ -54,4 +51,4 @@ ENV HEALTH_PORT=3000
 EXPOSE 3000
 
 # Run the worker
-CMD ["python", "main.py"] 
+CMD ["python", "worker/main.py"] 

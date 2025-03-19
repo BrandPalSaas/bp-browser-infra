@@ -16,8 +16,8 @@ spec:
     spec:
       containers:
       - name: worker
-        image: us-central1-docker.pkg.dev/browser-infra/browser-infra/worker:latest
-        imagePullPolicy: Always
+        image: browser-worker:latest
+        imagePullPolicy: Never
         env:
         - name: HEALTH_PORT
           value: "3000"
@@ -34,6 +34,7 @@ spec:
             cpu: "500m"
             memory: "1Gi"
       hostAliases:
-      - ip: "host-gateway"
+      - ip: "192.168.49.1"
         hostnames:
+        - "host.minikube.internal"
         - "host.docker.internal" 

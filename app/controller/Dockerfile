@@ -7,15 +7,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
+# Copy requirements first for better caching
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy common modules
-COPY common/ /app/common/
-
-# Copy controller code
-COPY controller/ .
+# Copy the application code
+COPY app /app
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
@@ -25,4 +22,4 @@ ENV PYTHONPATH=/app
 EXPOSE 8000
 
 # Run the application
-CMD ["python", "main.py"] 
+CMD ["python", "controller/main.py"] 

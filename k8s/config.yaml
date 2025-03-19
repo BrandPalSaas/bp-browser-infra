@@ -4,11 +4,11 @@ metadata:
   name: browser-infra-config
 data:
   # Redis configuration for local Redis server on host machine
-  REDIS_HOST: "host.docker.internal"
+  REDIS_HOST: "host.minikube.internal"
   REDIS_PORT: "6379"
   REDIS_PASSWORD: ""
   REDIS_SSL: "false"
   REDIS_STREAM: "browser_tasks"
-  REDIS_RESULTS_STREAM: "browser_results"
+  REDIS_RESULTS_PREFIX: "task_result_"
   REDIS_GROUP: "browser_workers"
   DOCKER_HOST: "unix:///var/run/docker.sock" 
