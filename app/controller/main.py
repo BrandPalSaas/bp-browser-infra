@@ -8,7 +8,7 @@ structlog.configure(
 
 from fastapi import FastAPI, HTTPException, Depends
 import os
-from task_manager import TaskManager, get_task_manager
+from app.common.task_manager import TaskManager, get_task_manager
 from app.common.models import BrowserTaskRequest, BrowserTaskResponse
 
 log = structlog.get_logger(__name__)

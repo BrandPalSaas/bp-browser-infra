@@ -4,12 +4,10 @@ import os
 import time
 import json
 import asyncio
-import redis.asyncio as redis
 import structlog
 import socket
-import signal
-import ssl
-from app.common.models import BrowserTask, TaskResult
+from app.common.models import BrowserTaskStatus, TaskEntry
+from app.common.task_manager import TaskManager
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -30,71 +28,14 @@ class BrowserWorker:
         self.browser = None
         self.ready = False
         self.running = True
-        
-        # Connect to Redis
-        self.redis_host = os.getenv("REDIS_HOST", "localhost")
-        self.redis_port = int(os.getenv("REDIS_PORT", 6379))
-        self.redis_password = os.getenv("REDIS_PASSWORD", "")
-        self.redis_ssl = os.getenv("REDIS_SSL", "false").lower() == "true"
-        self.stream_name = os.getenv("REDIS_STREAM", "browser_tasks")
-        self.results_key_prefix = os.getenv("REDIS_RESULTS_PREFIX", "browser_result:")
-        self.group_name = os.getenv("REDIS_GROUP", "browser_workers")
         self.consumer_name = f"worker-{socket.gethostname()}-{os.getpid()}"
         
-        self.redis = None
-    
-    async def connect_to_redis(self):
-        """Connect to Redis and set up streams."""
-        try:
-            log.info("Connecting to Redis", 
-                     host=self.redis_host, 
-                     port=self.redis_port,
-                     ssl=self.redis_ssl)
-            
-            # Connection parameters
-            connection_params = {
-                "host": self.redis_host, 
-                "port": self.redis_port,
-                "password": self.redis_password if self.redis_password else None,
-                "ssl": self.redis_ssl,
-            }
-            
-            # Some Redis clients use ssl_cert_reqs instead of ssl_context
-            if self.redis_ssl:
-                connection_params["ssl_cert_reqs"] = None
-            
-            # Connect to Redis
-            self.redis = redis.Redis(**connection_params)
-            
-            # Check connection
-            await self.redis.ping()
-            log.info("Connected to Redis successfully")
-            
-            # Create consumer group if it doesn't exist
-            try:
-                await self.redis.xgroup_create(
-                    name=self.stream_name,
-                    groupname=self.group_name,
-                    mkstream=True,
-                    id='0'  # Start from beginning
-                )
-                log.info("Created consumer group", group=self.group_name, stream=self.stream_name)
-            except redis.ResponseError as e:
-                if "BUSYGROUP" in str(e):
-                    # Group already exists
-                    log.info("Consumer group already exists", group=self.group_name)
-                else:
-                    raise
-            
-            return True
-        except Exception as e:
-            log.error("Failed to connect to Redis", error=str(e), exc_info=True)
-            await asyncio.sleep(5)  # Wait before retrying
-            return False
+        # Task manager for Redis interactions
+        self.task_manager = TaskManager()
     
     async def initialize(self):
-        """Initialize the worker with a browser instance."""
-        if not await self.connect_to_redis():
+        """Initialize the worker with a browser instance and Redis connection."""
+        if not await self.task_manager.initialize():
             log.error("Failed to connect to Redis. Exiting.")
             return False
         
@@ -112,54 +53,70 @@ class BrowserWorker:
             log.error("Failed to initialize browser", error=str(e), exc_info=True)
             return False
     
-    async def process_task(self, task_data):
+    async def process_task(self, task_id: str, entry: TaskEntry):
+
         """Process a browser task."""
+        if not entry:
+            log.error("Task entry not found", task_id=task_id)
+            await self.task_manager.update_task_result(
+                task_id, 
+                BrowserTaskStatus.FAILED, 
+                exception="Task entry not found"
+            )
+            return
+        
+        log_ctx = log.bind(task_id=task_id)
         try:
-            task_id = task_data.get('task_id', 'unknown')
-            task_content = task_data.get('task', '{}')
+            log_ctx.info("Processing task")
             
-            if isinstance(task_content, str):
-                try:
-                    task_content = json.loads(task_content)
-                except json.JSONDecodeError:
-                    log.error("Invalid task JSON", task_id=task_id)
-                    return {'error': 'Invalid task format'}
+            # Update status to running
+            await self.task_manager.update_task_result(task_id, BrowserTaskStatus.RUNNING)
             
-            log.info("Processing task", task_id=task_id)
-            
-            # Update task status to running
-            result_key = f"{self.results_key_prefix}{task_id}"
-            running_status = {
-                "task_id": task_id,
-                "status": "running",
-                "timestamp": int(time.time() * 1000)
-            }
-            await self.redis.set(result_key, json.dumps(running_status), ex=3600)  # 1 hour expiry
-            
-            # Create a new browser context for this session
+            # Create a new browser context for this task
             context = await self.browser.new_context()
             
             try:
                 # Initialize the BrowserUseAgent
                 agent = BrowserUseAgent(
                     browser=context,
-                    session_id=task_id  # Use task_id as session_id since we don't have separate sessions
+                    session_id=task_id
                 )
                 
                 # Process the task
-                result = await agent.process_task(task_content)
-                log.info("Task completed", task_id=task_id)
-                return result
+                result = await agent.process_task(entry.request)
+                log_ctx.info("Task completed successfully")
+                
+                # Update task result
+                await self.task_manager.update_task_result(
+                    task_id, 
+                    BrowserTaskStatus.COMPLETED, 
+                    response=result
+                )
+                
+            except Exception as e:
+                log_ctx.error("Error in browser agent", error=str(e), exc_info=True)
+                await self.task_manager.update_task_result(
+                    task_id, 
+                    BrowserTaskStatus.FAILED, 
+                    exception=str(e)
+                )
             finally:
                 # Always close the context when done
                 await context.close()
         
         except Exception as e:
-            log.error("Error processing task", error=str(e), task_id=task_data.get('task_id', 'unknown'), exc_info=True)
-            return {'error': str(e)}
+            log_ctx.error("Error processing task", error=str(e), exc_info=True)
+            await self.task_manager.update_task_result(
+                task_id, 
+                BrowserTaskStatus.FAILED, 
+                exception=str(e)
+            )
     
     async def read_tasks(self):
-        """Read tasks from Redis stream."""
+        """Read tasks from Redis stream and process them."""
+        # Ensure consumer group exists
+        await self.task_manager.create_consumer_group()
+        
         while self.running:
             try:
                 if not self.ready:
@@ -167,58 +124,35 @@ class BrowserWorker:
                     await asyncio.sleep(1)
                     continue
                 
-                # Read from the stream with a block of 2 seconds
-                tasks = await self.redis.xreadgroup(
-                    groupname=self.group_name,
-                    consumername=self.consumer_name,
-                    streams={self.stream_name: '>'},
-                    count=1,
-                    block=2000
-                )
+                # Read from the stream using consumer group
+                # This claims the message but doesn't acknowledge it yet
+                task_data = await self.task_manager.read_next_task(self.consumer_name)
                 
-                if not tasks:  # No new messages
+                if not task_data:  # No new messages
                     continue
                 
-                # Process each task
-                for stream_name, messages in tasks:
-                    for message_id, data in messages:
-                        task_data = {k.decode(): v.decode() for k, v in data.items()}
-                        task_data['message_id'] = message_id.decode()
-                        
-                        log.info("Received task", task_id=task_data.get('task_id', 'unknown'))
-                        
-                        # Process the task asynchronously
-                        task_result = await self.process_task(task_data)
-                        
-                        # Prepare the final result data
-                        result_data = {
-                            'task_id': task_data.get('task_id', 'unknown'),
-                            'status': 'completed' if task_result.get('success', False) else 'failed',
-                            'success': task_result.get('success', False),
-                            'result': task_result.get('result', None),
-                            'results': task_result.get('results', None),
-                            'error': task_result.get('error', None),
-                            'timestamp': int(time.time() * 1000)
-                        }
-                        
-                        # Store result directly in Redis key
-                        result_key = f"{self.results_key_prefix}{task_data.get('task_id', 'unknown')}"
-                        await self.redis.set(result_key, json.dumps(result_data), ex=3600)  # 1 hour expiry
-                        
-                        # Acknowledge the message
-                        await self.redis.xack(
-                            name=self.stream_name,
-                            groupname=self.group_name,
-                            id=message_id
-                        )
-                        
-                        log.info("Task processed and result stored", 
-                                task_id=task_data.get('task_id', 'unknown'),
-                                status=result_data['status'])
-            
+                task_id = task_data.get('task_id', 'unknown')
+                message_id = task_data.get('message_id', 'unknown')
+                log.info("Received task", task_id=task_id, message_id=message_id)
+                
+                try:
+                    # Process the task
+                    await self.process_task(task_data)
+                    
+                    # Acknowledge only after successful processing
+                    ack_success = await self.task_manager.acknowledge_task(task_data)
+                    if ack_success:
+                        log.info("Task acknowledged after successful processing", task_id=task_id)
+                    else:
+                        log.error("Failed to acknowledge task", task_id=task_id)
+                except Exception as e:
+                    log.error("Error processing task", task_id=task_id, error=str(e), exc_info=True)
+                    # Don't acknowledge - will be redelivered to another consumer after idle timeout
+                
             except Exception as e:
                 log.error("Error in read_tasks loop", error=str(e), exc_info=True)
                 await asyncio.sleep(1)  # Avoid tight loop on persistent errors
+
     
     async def shutdown(self):
         """Cleanup and shutdown the worker."""
@@ -233,27 +167,7 @@ class BrowserWorker:
             await self.playwright.stop()
             log.info("Playwright stopped")
         
-        if self.redis:
-            await self.redis.close()
-            log.info("Redis connection closed")
-    
-    async def run(self):
-        """Run the worker."""
-        # Set up signal handlers
-        loop = asyncio.get_running_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, lambda: asyncio.create_task(self.shutdown()))
-        
-        if not await self.initialize():
-            log.error("Initialization failed. Exiting.")
-            return
-        
-        # Start the main task processing loop
-        await self.read_tasks()
-
-async def main():
-    worker = BrowserWorker()
-    await worker.run()
-
-if __name__ == "__main__":
-    asyncio.run(main()) 
+        # Close Redis connection
+        if self.task_manager and self.task_manager.redis:
+            await self.task_manager.redis.close()
+            log.info("Redis connection closed") 
