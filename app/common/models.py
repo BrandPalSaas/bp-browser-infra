@@ -22,11 +22,8 @@ class BrowserTaskRequest(BaseModel):
 class BrowserTaskResponse(BaseModel):
     """Model for a task execution response."""
     task_id: str
-    task_response: str
     task_status: BrowserTaskStatus
-    wait_time_in_seconds: int
-    execution_time_in_seconds: int
-
+    task_response: str
 
 class ProfileStatus(str, Enum):
     RUNNING = "running"
@@ -42,14 +39,6 @@ class Profile(ProfileRequest):
     id: str
     created_at: datetime
     status: ProfileStatus = ProfileStatus.STOPPED
-
-class BrowserSession(BaseModel):
-    id: str
-    started_at: datetime
-    status: SessionStatus = SessionStatus.RUNNING
-    container_id: Optional[str] = None
-    live_view_url: Optional[str] = None
-    port: Optional[int] = None
 
 class ActionResult(BaseModel):
     """Model for an action result."""
@@ -72,4 +61,3 @@ class TaskResult(BaseModel):
     success: Optional[bool] = None
     url: Optional[str] = None
     results: Optional[List[ActionResult]] = None
-    error: Optional[str] = None 

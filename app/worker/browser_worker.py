@@ -37,7 +37,7 @@ class BrowserWorker:
         self.redis_password = os.getenv("REDIS_PASSWORD", "")
         self.redis_ssl = os.getenv("REDIS_SSL", "false").lower() == "true"
         self.stream_name = os.getenv("REDIS_STREAM", "browser_tasks")
-        self.results_stream = os.getenv("REDIS_RESULTS_STREAM", "browser_results")
+        self.results_key_prefix = os.getenv("REDIS_RESULTS_PREFIX", "browser_result:")
         self.group_name = os.getenv("REDIS_GROUP", "browser_workers")
         self.consumer_name = f"worker-{socket.gethostname()}-{os.getpid()}"
         
@@ -116,7 +116,6 @@ class BrowserWorker:
         """Process a browser task."""
         try:
             task_id = task_data.get('task_id', 'unknown')
-            session_id = task_data.get('session_id', 'unknown')
             task_content = task_data.get('task', '{}')
             
             if isinstance(task_content, str):
@@ -126,7 +125,16 @@ class BrowserWorker:
                     log.error("Invalid task JSON", task_id=task_id)
                     return {'error': 'Invalid task format'}
             
-            log.info("Processing task", task_id=task_id, session_id=session_id)
+            log.info("Processing task", task_id=task_id)
+            
+            # Update task status to running
+            result_key = f"{self.results_key_prefix}{task_id}"
+            running_status = {
+                "task_id": task_id,
+                "status": "running",
+                "timestamp": int(time.time() * 1000)
+            }
+            await self.redis.set(result_key, json.dumps(running_status), ex=3600)  # 1 hour expiry
             
             # Create a new browser context for this session
             context = await self.browser.new_context()
@@ -135,7 +143,7 @@ class BrowserWorker:
                 # Initialize the BrowserUseAgent
                 agent = BrowserUseAgent(
                     browser=context,
-                    session_id=session_id
+                    session_id=task_id  # Use task_id as session_id since we don't have separate sessions
                 )
                 
                 # Process the task
@@ -180,22 +188,22 @@ class BrowserWorker:
                         log.info("Received task", task_id=task_data.get('task_id', 'unknown'))
                         
                         # Process the task asynchronously
-                        result = await self.process_task(task_data)
+                        task_result = await self.process_task(task_data)
                         
-                        # Send result back to Redis
+                        # Prepare the final result data
                         result_data = {
                             'task_id': task_data.get('task_id', 'unknown'),
-                            'session_id': task_data.get('session_id', 'unknown'),
-                            'result': json.dumps(result),
-                            'timestamp': str(int(time.time() * 1000))
+                            'status': 'completed' if task_result.get('success', False) else 'failed',
+                            'success': task_result.get('success', False),
+                            'result': task_result.get('result', None),
+                            'results': task_result.get('results', None),
+                            'error': task_result.get('error', None),
+                            'timestamp': int(time.time() * 1000)
                         }
                         
-                        # Add result to results stream
-                        await self.redis.xadd(
-                            name=self.results_stream,
-                            fields=result_data,
-                            maxlen=10000
-                        )
+                        # Store result directly in Redis key
+                        result_key = f"{self.results_key_prefix}{task_data.get('task_id', 'unknown')}"
+                        await self.redis.set(result_key, json.dumps(result_data), ex=3600)  # 1 hour expiry
                         
                         # Acknowledge the message
                         await self.redis.xack(
@@ -204,8 +212,9 @@ class BrowserWorker:
                             id=message_id
                         )
                         
-                        log.info("Task acknowledged and result sent", 
-                                task_id=task_data.get('task_id', 'unknown'))
+                        log.info("Task processed and result stored", 
+                                task_id=task_data.get('task_id', 'unknown'),
+                                status=result_data['status'])
             
             except Exception as e:
                 log.error("Error in read_tasks loop", error=str(e), exc_info=True)

@@ -1,83 +1,96 @@
 #!/usr/bin/env python3
 """
-Redis Connection Verification Script
+Verify Redis connection and setup for the browser infrastructure.
 
-This script verifies connectivity to Redis and sets up the required streams.
+This script:
+1. Checks connectivity to Redis
+2. Ensures the task stream exists
+3. Creates the consumer group if needed
 
 Usage:
-    python scripts/verify_redis.py
-
-The script will:
-1. Check if Redis is running at localhost:6379
-2. Ensure the browser_tasks and browser_results streams exist
-3. Create the browser_workers consumer group if needed
+    python verify_redis.py
 
 Exit codes:
-    0 - Success, Redis is ready
-    1 - Failure, could not connect to Redis or other error
+    0 - Everything is properly configured
+    1 - Failed to connect to Redis
+    2 - Failed to set up task stream or consumer group
 """
 
-import redis
+import os
 import sys
-import time
+import asyncio
+import redis.asyncio as redis
+import ssl
 
-def verify_redis():
-    """Verify connection to Redis and set up streams."""
-    print("Verifying Redis connection at localhost:6379...")
+async def verify_redis():
+    # Redis connection parameters
+    redis_host = os.getenv("REDIS_HOST", "localhost")
+    redis_port = int(os.getenv("REDIS_PORT", 6379))
+    redis_password = os.getenv("REDIS_PASSWORD", "")
+    redis_ssl = os.getenv("REDIS_SSL", "false").lower() == "true"
+    task_stream = os.getenv("REDIS_STREAM", "browser_tasks")
+    group_name = os.getenv("REDIS_GROUP", "browser_workers")
+    
+    print(f"Connecting to Redis at {redis_host}:{redis_port}")
     
     try:
+        # Set up SSL if needed
+        ssl_connection = None
+        if redis_ssl:
+            ssl_connection = ssl.create_default_context()
+        
         # Connect to Redis
         r = redis.Redis(
-            host='localhost',
-            port=6379,
-            decode_responses=True
+            host=redis_host,
+            port=redis_port,
+            password=redis_password if redis_password else None,
+            ssl=redis_ssl,
+            ssl_cert_reqs=None if redis_ssl else None,
+            ssl_context=ssl_connection
         )
         
-        # Test connection
-        if r.ping():
-            print("✅ Connected to Redis successfully!")
-            
-            # Define stream names
-            task_stream = "browser_tasks"
-            results_stream = "browser_results"
-            group_name = "browser_workers"
-            
-            # Create streams if they don't exist
-            if not r.exists(task_stream):
-                r.xadd(task_stream, {"test": "test"}, maxlen=10)
-                print(f"✅ Created task stream: {task_stream}")
-            else:
-                print(f"✅ Task stream exists: {task_stream}")
-            
-            if not r.exists(results_stream):
-                r.xadd(results_stream, {"test": "test"}, maxlen=10)
-                print(f"✅ Created results stream: {results_stream}")
-            else:
-                print(f"✅ Results stream exists: {results_stream}")
-            
-            # Create consumer group
-            try:
-                r.xgroup_create(task_stream, group_name, id="0", mkstream=True)
-                print(f"✅ Created consumer group: {group_name}")
-            except redis.exceptions.ResponseError as e:
-                if "BUSYGROUP" in str(e):
-                    print(f"✅ Consumer group already exists: {group_name}")
-                else:
-                    raise
-            
-            print("\nRedis is ready for use with the browser infrastructure!")
-            return True
+        # Check connection
+        await r.ping()
+        print("✅ Successfully connected to Redis")
+        
+        # Create the task stream if it doesn't exist
+        stream_info = await r.exists(task_stream)
+        if not stream_info:
+            await r.xadd(task_stream, {"init": "1"})
+            print(f"✅ Created task stream '{task_stream}'")
         else:
-            print("❌ Redis ping failed")
-            return False
-    except redis.exceptions.ConnectionError as e:
-        print(f"❌ Could not connect to Redis: {e}")
-        print("Make sure Redis is running on localhost:6379")
-        return False
+            print(f"✅ Task stream '{task_stream}' exists")
+        
+        # Create consumer group if it doesn't exist
+        try:
+            await r.xgroup_create(
+                name=task_stream,
+                groupname=group_name,
+                mkstream=True,
+                id='0'  # Start from beginning
+            )
+            print(f"✅ Created consumer group '{group_name}' for stream '{task_stream}'")
+        except redis.ResponseError as e:
+            if "BUSYGROUP" in str(e):
+                # Group already exists
+                print(f"✅ Consumer group '{group_name}' already exists")
+            else:
+                print(f"❌ Error creating consumer group: {e}")
+                await r.close()
+                return 2
+        
+        # Clean up
+        await r.close()
+        print("✅ Redis verification completed successfully")
+        return 0
+        
+    except redis.ConnectionError as e:
+        print(f"❌ Failed to connect to Redis: {e}")
+        return 1
     except Exception as e:
         print(f"❌ Unexpected error: {e}")
-        return False
+        return 2
 
 if __name__ == "__main__":
-    success = verify_redis()
-    sys.exit(0 if success else 1) 
+    exit_code = asyncio.run(verify_redis())
+    sys.exit(exit_code) 
