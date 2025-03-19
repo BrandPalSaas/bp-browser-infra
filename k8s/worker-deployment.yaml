@@ -1,11 +1,11 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: worker
+  name: worker-deployment
   labels:
     app: worker
 spec:
-  replicas: 2  # Initial number of worker instances
+  replicas: 2
   selector:
     matchLabels:
       app: worker
@@ -15,16 +15,25 @@ spec:
         app: worker
     spec:
       containers:
-      - name: browser
-        image: worker:latest
-        imagePullPolicy: IfNotPresent
-        command: ["python", "browser_worker.py"]
+      - name: worker
+        image: us-central1-docker.pkg.dev/browser-infra/browser-infra/worker:latest
+        imagePullPolicy: Always
+        env:
+        - name: HEALTH_PORT
+          value: "3000"
+        envFrom:
+        - configMapRef:
+            name: browser-infra-config
         ports:
         - containerPort: 3000
         resources:
           limits:
-            cpu: "1000m"
-            memory: "1Gi"
+            cpu: "1"
+            memory: "2Gi"
           requests:
             cpu: "500m"
-            memory: "512Mi" 
+            memory: "1Gi"
+      hostAliases:
+      - ip: "host-gateway"
+        hostnames:
+        - "host.docker.internal" 

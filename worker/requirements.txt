@@ -1,4 +1,0 @@
-playwright==1.51.0
-browser-use==0.1.40
-python-dotenv==1.0.1
-structlog==25.2.0 

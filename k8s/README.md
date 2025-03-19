@@ -1,53 +1,67 @@
-# Kubernetes Deployment for Browser Infrastructure
+# Kubernetes Configuration with Local Redis
 
-This directory contains Kubernetes manifests for deploying the browser infrastructure.
+This directory contains the Kubernetes configuration for the browser infrastructure that connects to a Redis server running on your local machine.
 
-## Prerequisites
+## Configuration
 
-- Kubernetes cluster with kubectl access
-- Docker to build the API image
+### Redis Connection
 
-## Building the API Image
+The system is configured to connect to a Redis server running on your local machine at:
+- Host: localhost (from your machine) / host.docker.internal (from Kubernetes pods)
+- Port: 6379
+- No password
+- No SSL
 
-```bash
-# From the root directory
-docker build -t browser-infra-service:latest .
-```
+### Files
+
+- `config.yaml`: ConfigMap with Redis connection settings
+- `controller-deployment.yaml`: Controller deployment with hostAliases for Redis access
+- `worker-deployment.yaml`: Worker deployment with hostAliases for Redis access
+- `controller-service.yaml`: Service for the controller API
+- `kustomization.yaml`: Kustomize configuration to apply all resources
 
 ## Deployment
 
-To deploy all resources to your Kubernetes cluster:
+To deploy the system:
 
 ```bash
+# Apply all resources
 kubectl apply -k k8s/
+
+# Check status
+kubectl get pods
 ```
 
-Or you can apply each file individually:
+## Building Images
+
+The system uses a shared requirements.txt file at the root level to manage dependencies for both components:
 
 ```bash
-kubectl apply -f k8s/rbac.yaml
-kubectl apply -f k8s/config.yaml
-kubectl apply -f k8s/api-deployment.yaml
-kubectl apply -f k8s/api-service.yaml
-kubectl apply -f k8s/browser-deployment.yaml
-kubectl apply -f k8s/browser-service.yaml
+# Build controller image
+docker build -t us-central1-docker.pkg.dev/browser-infra/browser-infra/controller:latest -f controller/Dockerfile .
+
+# Build worker image
+docker build -t us-central1-docker.pkg.dev/browser-infra/browser-infra/worker:latest -f worker/Dockerfile .
 ```
 
-## Accessing the API
+Note that the build command must be run from the root directory to include the shared requirements.txt file.
 
-The API service is deployed as a ClusterIP service. To access it, you can:
+## Verification
 
-1. Use port-forwarding:
-   ```bash
-   kubectl port-forward svc/browser-infra-service 8000:8000
-   ```
-
-2. Or set up an Ingress resource (not included in these manifests).
-
-## Clean Up
-
-To remove all resources:
+To verify Redis connectivity from inside the pods:
 
 ```bash
-kubectl delete -k k8s/
+# From controller pod
+kubectl exec -it $(kubectl get pod -l app=controller -o jsonpath='{.items[0].metadata.name}') -- sh -c "cd /app && python -c \"
+import redis
+r = redis.Redis(host='host.docker.internal', port=6379)
+print('Redis connection:', 'successful' if r.ping() else 'failed')
+\""
+
+# From worker pod
+kubectl exec -it $(kubectl get pod -l app=worker -o jsonpath='{.items[0].metadata.name}') -- sh -c "cd /app && python -c \"
+import redis
+r = redis.Redis(host='host.docker.internal', port=6379)
+print('Redis connection:', 'successful' if r.ping() else 'failed')
+\""
 ``` 

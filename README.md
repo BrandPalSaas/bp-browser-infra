@@ -1,127 +1,165 @@
-# Browser Infrastructure
+# Browser Infrastructure with External Redis
 
-A modular system for managing browser instances with a controller API and worker nodes.
+This project implements a browser infrastructure system utilizing Kubernetes and an external Redis server for task queue management.
 
-## Project Structure
+## Architecture
 
-- `controller/` - API control plane
-  - `main.py` - FastAPI application
-  - `models.py` - Data models
-  - `container.py` - Container management
-  - `Dockerfile` - Controller container image
-  - `requirements.txt` - Controller dependencies
+- **Controller**: API service that receives browser automation requests and queues them in Redis
+- **Worker**: Service that processes browser automation tasks from Redis queues
+- **Redis**: External Redis server used for task queuing and results
 
-- `worker/` - Browser worker
-  - `browser_worker.py` - Worker implementation
-  - `Dockerfile` - Worker container image
-  - `requirements.txt` - Worker dependencies
+## Dependency Management
 
-- `k8s/` - Kubernetes manifests
-  - Deployments, services, and configuration
+The project uses a split dependency management approach:
+
+- **Core dependencies** are managed in the shared `requirements.txt` file at the project root
+- **Worker-specific dependencies** (like Playwright and browser-use) are installed directly in the worker Dockerfile
+- **Controller-specific dependencies** are listed in the shared requirements.txt
+
+This approach ensures that the controller doesn't need to install the heavy browser automation dependencies.
+
+### Development Setup
+
+For development, you can use the setup script:
+
+```bash
+# Setup with interactive prompts
+./scripts/setup_dev.sh
+
+# Or specify components explicitly
+./scripts/setup_dev.sh --worker     # For worker development
+./scripts/setup_dev.sh --controller # For controller development
+./scripts/setup_dev.sh --all        # For both
+```
+
+## Setup with External Redis
+
+### Prerequisites
+
+- Kubernetes cluster
+- External Redis server (managed service or standalone installation)
+- Docker and kubectl installed
+
+### Configuration Steps
+
+1. **Update Redis Configuration**
+
+   Edit the `k8s/config.yaml` file to set your Redis connection details:
+   
+   ```yaml
+   REDIS_HOST: "your-external-redis-host"
+   REDIS_PORT: "6379"
+   REDIS_SSL: "true"  # Set to "false" if not using SSL
+   REDIS_STREAM: "browser_tasks"
+   REDIS_RESULTS_STREAM: "browser_results"
+   REDIS_GROUP: "browser_workers"
+   ```
+
+2. **Set Redis Password**
+
+   Update the Redis password in the `k8s/redis-secret.yaml` file:
+   
+   ```bash
+   # Generate base64 encoded password
+   echo -n "your-redis-password" | base64
+   
+   # Update the secret file with the encoded password
+   ```
+
+3. **Build Docker Images**
+
+   ```bash
+   # Build controller image
+   docker build -t us-central1-docker.pkg.dev/browser-infra/browser-infra/controller:latest -f controller/Dockerfile .
+   
+   # Build worker image
+   docker build -t us-central1-docker.pkg.dev/browser-infra/browser-infra/worker:latest -f worker/Dockerfile .
+   
+   # Push to your container registry
+   docker push us-central1-docker.pkg.dev/browser-infra/browser-infra/controller:latest
+   docker push us-central1-docker.pkg.dev/browser-infra/browser-infra/worker:latest
+   ```
+
+4. **Deploy to Kubernetes**
+
+   ```bash
+   kubectl apply -k k8s/
+   ```
+
+5. **Verify Deployment**
+
+   ```bash
+   # Check the pods are running
+   kubectl get pods
+   
+   # Check controller service
+   kubectl get svc
+   ```
+
+## Usage
+
+The controller exposes an API endpoint for submitting browser automation tasks:
+
+```bash
+curl -X POST http://<controller-service-ip>/browser/use -H "Content-Type: application/json" -d '{
+  "url": "https://example.com",
+  "actions": [
+    {"type": "wait", "duration": 2000},
+    {"type": "screenshot"}
+  ]
+}'
+```
 
 ## Development
 
-### Local Development
+To run the system locally for development:
 
-1. Setup virtual environments:
-```bash
-# Controller
-cd controller
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
+1. Start a local Redis server:
+   ```bash
+   docker run -d -p 6379:6379 redis:latest
+   ```
 
-```bash
-# Worker
-cd worker
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
+2. Set environment variables:
+   ```bash
+   export REDIS_HOST=localhost
+   export REDIS_PORT=6379
+   export REDIS_SSL=false
+   export REDIS_PASSWORD=
+   ```
 
-2. Run the controller API:
-```bash
-cd controller
-uvicorn main:app --reload
-```
+3. Run the controller:
+   ```bash
+   cd controller
+   python main.py
+   ```
 
-3. Run the worker:
-```bash
-cd worker
-python browser_worker.py
-```
+4. Run the worker:
+   ```bash
+   cd worker
+   python main.py
+   ```
 
-### Docker Setup
+## Scaling
 
-Build the images:
-```bash
-# Controller
-docker build -t controller:latest -f controller/Dockerfile controller
-
-# Worker
-docker build -t worker:latest -f worker/Dockerfile worker
-```
-
-Run the containers:
-```bash
-# Controller
-docker run -p 8000:8000 controller:latest
-
-# Worker
-docker run -p 3000:3000 worker:latest
-```
-
-### Kubernetes Deployment
-
-#### Prerequisites
-- Minikube, kind, or another local Kubernetes cluster
-- kubectl configured to access your cluster
-
-#### Using Makefile
-
-The Makefile provides simple commands for building, deploying, and managing the application:
+To scale the number of workers:
 
 ```bash
-# Start Minikube if not running
-minikube start
-
-# Build all images, load into Minikube, and deploy
-make all
-
-# Check deployment status
-make status
-
-# Get controller URL
-make urls
-
-# View logs
-make logs-controller
-make logs-worker
-
-# Clean up resources
-make clean
-
-# Run services locally
-make run-controller
-make run-worker
+kubectl scale deployment worker-deployment --replicas=5
 ```
 
-#### Manual Deployment
+## Troubleshooting
 
-1. Build and load images:
-```bash
-docker build -t controller:latest -f controller/Dockerfile controller
-docker build -t worker:latest -f worker/Dockerfile worker
+- **Redis Connection Issues**: Ensure your network policies allow traffic to the Redis server
+- **Worker Errors**: Check the worker logs for details about task execution issues
+- **Controller API Unavailable**: Verify the service and endpoints are correctly configured
 
-minikube image load controller:latest
-minikube image load worker:latest
-```
+## Project Structure
 
-2. Deploy to Kubernetes:
-```bash
-kubectl apply -k k8s/
-```
+- `controller/`: API service for queueing browser tasks
+- `worker/`: Service for processing browser tasks
+- `common/`: Shared models and utilities used by both components
+- `k8s/`: Kubernetes configuration files
+  - Deployments, services, and configuration
 
 ## API Endpoints
 

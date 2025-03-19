@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: controller
+  name: controller-deployment
   labels:
     app: controller
 spec:
@@ -15,22 +15,25 @@ spec:
         app: controller
     spec:
       containers:
-      - name: api
-        image: controller:latest
-        imagePullPolicy: IfNotPresent
+      - name: controller
+        image: us-central1-docker.pkg.dev/browser-infra/browser-infra/controller:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 8000
+        envFrom:
+        - configMapRef:
+            name: browser-infra-config
         resources:
           limits:
+            cpu: "1"
+            memory: "1Gi"
+          requests:
             cpu: "500m"
             memory: "512Mi"
-          requests:
-            cpu: "200m"
-            memory: "256Mi"
-        volumeMounts:
-        - name: config-volume
-          mountPath: /app/.env
-          subPath: .env
+      hostAliases:
+      - ip: "host-gateway"
+        hostnames:
+        - "host.docker.internal"
       volumes:
       - name: config-volume
         configMap:

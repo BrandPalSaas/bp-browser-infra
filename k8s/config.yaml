@@ -3,8 +3,12 @@ kind: ConfigMap
 metadata:
   name: browser-infra-config
 data:
-  .env: |
-    # Note: This is a placeholder. In production, use Kubernetes secrets
-    # or a secrets management solution for sensitive information
-    OPENAI_API_KEY=your-api-key
-    DOCKER_HOST=unix:///var/run/docker.sock 
+  # Redis configuration for local Redis server on host machine
+  REDIS_HOST: "host.docker.internal"
+  REDIS_PORT: "6379"
+  REDIS_PASSWORD: ""
+  REDIS_SSL: "false"
+  REDIS_STREAM: "browser_tasks"
+  REDIS_RESULTS_STREAM: "browser_results"
+  REDIS_GROUP: "browser_workers"
+  DOCKER_HOST: "unix:///var/run/docker.sock" 
