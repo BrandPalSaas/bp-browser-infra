@@ -8,32 +8,22 @@ structlog.configure(
 
 from fastapi import FastAPI, HTTPException, Depends
 import os
-from contextlib import asynccontextmanager
-from task_manager import TaskManager, task_manager
-from app.common.models import BrowserTaskRequest, BrowserTaskResponse, TaskResult
+from task_manager import TaskManager, get_task_manager
+from app.common.models import BrowserTaskRequest, BrowserTaskResponse
 
 log = structlog.get_logger(__name__)
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Lifespan context manager for the application."""
-    # Initialize the task manager on startup
-    success = await task_manager.initialize()
-    if not success:
-        # Log the error but continue - we'll handle errors on each request
-        log.error("Failed to initialize task manager")
-    else:
-        log.info("Task manager initialized successfully")   
-    yield
-
-app = FastAPI(title="Browser Infrastructure API", lifespan=lifespan)
+app = FastAPI(title="Browser Infrastructure API")
 
 @app.get("/")
 async def root():
     return {"message": "Browser Infrastructure API"}
 
 @app.post("/browser/task", response_model=BrowserTaskResponse)
-async def start_browser_task(task: BrowserTaskRequest):
+async def start_browser_task(
+    task: BrowserTaskRequest, 
+    task_manager: TaskManager = Depends(get_task_manager)
+):
     """
     Submit a browser task for execution.
     """
@@ -44,11 +34,12 @@ async def start_browser_task(task: BrowserTaskRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/browser/task/{task_id}", response_model=BrowserTaskResponse)
-async def get_task_result(task_id: str):
+async def get_task_result(
+    task_id: str,
+    task_manager: TaskManager = Depends(get_task_manager)
+):
     """
     Get the result of a browser task.
-    
-    If wait=True, the request will wait for up to 30 seconds for the task to complete.
     """
     try:
         return await task_manager.get_task_result(task_id)
@@ -57,18 +48,15 @@ async def get_task_result(task_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/health")
-async def health_check():
+async def health_check(task_manager: TaskManager = Depends(get_task_manager)):
     """
     Health check endpoint.
     """
-    # Try to connect to Redis if needed
-    if not task_manager.redis:
-        redis_ok = await task_manager.connect_to_redis()
-    else:
-        try:
-            redis_ok = await task_manager.redis.ping()
-        except:
-            redis_ok = False
+    # Check Redis connection
+    try:
+        redis_ok = await task_manager.redis.ping()
+    except:
+        redis_ok = False
     
     status = "healthy" if redis_ok else "unhealthy"
     return {

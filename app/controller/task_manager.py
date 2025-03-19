@@ -153,5 +153,14 @@ class TaskManager:
             log_ctx.error("Error getting result", error=str(e), exc_info=True)
             return BrowserTaskResponse(task_id=task_id, task_status=BrowserTaskStatus.FAILED, task_response=f"Error getting result: {str(e)}")
 
-# Global task manager instance (not initialized yet)
-task_manager = TaskManager() 
+# Function to provide TaskManager as a dependency
+async def get_task_manager():
+    """Dependency function to get the TaskManager instance."""
+    manager = TaskManager()
+    await manager.initialize()
+    try:
+        yield manager
+    finally:
+        # Clean up if needed
+        if manager.redis:
+            await manager.redis.close() 

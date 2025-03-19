@@ -7,7 +7,8 @@ import signal
 import os
 import structlog
 from browser_worker import BrowserWorker
-from health import start_health_server
+from fastapi import FastAPI, HTTPException
+import uvicorn
 
 # Configure structlog
 structlog.configure(
@@ -19,36 +20,81 @@ structlog.configure(
 
 log = structlog.get_logger()
 
-async def main():
-    """Main entry point for the worker."""
-    log.info("Starting Browser Worker")
-    
-    # Start health check server
-    health_runner = await start_health_server()
-    log.info("Health check server started")
-    
-    # Create and start worker
+# Create a FastAPI app for health checks
+app = FastAPI(title="Browser Worker Health API")
+
+# Worker instance
+worker = None
+
+@app.get("/")
+async def root():
+    return {"message": "Browser Worker Health API"}
+
+@app.get("/health")
+async def health():
+    """Health check endpoint."""
+    global worker
+    if worker and worker.ready:
+        # Try to check Redis connection
+        try:
+            redis_ok = await worker.redis.ping()
+        except:
+            redis_ok = False
+        
+        return {
+            "status": "healthy",
+            "browser": "ready",
+            "redis": "connected" if redis_ok else "disconnected"
+        }
+    else:
+        return {
+            "status": "unhealthy",
+            "browser": "not ready" if worker else "not initialized"
+        }
+
+async def start_worker():
+    """Start the worker process."""
+    global worker
     worker = BrowserWorker()
     
-    # Handle shutdown signals
+    # Set up signal handlers
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown(worker, health_runner)))
+        loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown()))
+    
+    # Initialize and run the worker
+    if await worker.initialize():
+        # Start the task processing loop
+        await worker.read_tasks()
+    else:
+        log.error("Worker initialization failed")
+
+async def shutdown():
+    """Shutdown the worker and web server."""
+    global worker
+    if worker:
+        await worker.shutdown()
+
+async def run_health_server():
+    """Run the health check server."""
+    # Get port for health server
+    port = int(os.getenv("HEALTH_PORT", 3000))
+    
+    # Use uvicorn to run the server
+    config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
+    server = uvicorn.Server(config)
+    await server.serve()
+
+async def main():
+    """Main entry point."""
+    # Start the health server in the background
+    health_server = asyncio.create_task(run_health_server())
     
     # Start the worker
-    await worker.run()
-
-async def shutdown(worker, health_runner):
-    """Gracefully shutdown the worker and health check server."""
-    log.info("Shutting down...")
+    worker_task = asyncio.create_task(start_worker())
     
-    # Stop worker
-    await worker.shutdown()
-    
-    # Cleanup health check server
-    await health_runner.cleanup()
-    
-    log.info("Shutdown complete")
+    # Wait for both tasks
+    await asyncio.gather(health_server, worker_task)
 
 if __name__ == "__main__":
     asyncio.run(main()) 
