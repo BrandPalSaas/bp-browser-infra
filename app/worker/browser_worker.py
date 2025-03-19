@@ -1,4 +1,4 @@
-from browser_use import BrowserUseAgent
+from browser_use import Agent
 from playwright.async_api import async_playwright
 import os
 import time
@@ -8,7 +8,7 @@ import structlog
 import socket
 from app.common.models import BrowserTaskStatus, TaskEntry
 from app.common.task_manager import TaskManager
-
+from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -53,65 +53,36 @@ class BrowserWorker:
             log.error("Failed to initialize browser", error=str(e), exc_info=True)
             return False
     
-    async def process_task(self, task_id: str, entry: TaskEntry):
-
-        """Process a browser task."""
-        if not entry:
-            log.error("Task entry not found", task_id=task_id)
-            await self.task_manager.update_task_result(
-                task_id, 
-                BrowserTaskStatus.FAILED, 
-                exception="Task entry not found"
-            )
-            return
+    async def process_task(self, entry: TaskEntry) -> bool:
         
+        task_id = entry.task_id
         log_ctx = log.bind(task_id=task_id)
         try:
-            log_ctx.info("Processing task")
+            log_ctx.info("Processing task", entry=entry)
             
             # Update status to running
             await self.task_manager.update_task_result(task_id, BrowserTaskStatus.RUNNING)
             
-            # Create a new browser context for this task
-            context = await self.browser.new_context()
+            # Initialize the BrowserUse Agent
+            agent = Agent(
+                browser=self.browser,
+                task=entry.request.task_description,
+                llm=ChatOpenAI(model="gpt-4o")
+            )
             
-            try:
-                # Initialize the BrowserUseAgent
-                agent = BrowserUseAgent(
-                    browser=context,
-                    session_id=task_id
-                )
-                
-                # Process the task
-                result = await agent.process_task(entry.request)
-                log_ctx.info("Task completed successfully")
-                
-                # Update task result
-                await self.task_manager.update_task_result(
-                    task_id, 
-                    BrowserTaskStatus.COMPLETED, 
-                    response=result
-                )
-                
-            except Exception as e:
-                log_ctx.error("Error in browser agent", error=str(e), exc_info=True)
-                await self.task_manager.update_task_result(
-                    task_id, 
-                    BrowserTaskStatus.FAILED, 
-                    exception=str(e)
-                )
-            finally:
-                # Always close the context when done
-                await context.close()
+            # Process the task
+            result = await agent.run()
+            log_ctx.info("Task completed successfully", result=result)
+            
+            # Update task result
+            await self.task_manager.update_task_result(task_id, BrowserTaskStatus.COMPLETED, response=json.dumps(result.model_dump()))
+            return True
         
         except Exception as e:
             log_ctx.error("Error processing task", error=str(e), exc_info=True)
-            await self.task_manager.update_task_result(
-                task_id, 
-                BrowserTaskStatus.FAILED, 
-                exception=str(e)
-            )
-    
+            await self.task_manager.update_task_result(task_id, BrowserTaskStatus.FAILED, exception=str(e))
+            return False
+
     async def read_tasks(self):
         """Read tasks from Redis stream and process them."""
         # Ensure consumer group exists
@@ -124,33 +95,25 @@ class BrowserWorker:
                     await asyncio.sleep(1)
                     continue
                 
-                # Read from the stream using consumer group
                 # This claims the message but doesn't acknowledge it yet
                 task_data = await self.task_manager.read_next_task(self.consumer_name)
                 
                 if not task_data:  # No new messages
                     continue
                 
-                task_id = task_data.get('task_id', 'unknown')
-                message_id = task_data.get('message_id', 'unknown')
-                log.info("Received task", task_id=task_id, message_id=message_id)
-                
+                message_id, entry = task_data
+                log_ctx = log.bind(task_id=entry.task_id)
+                log_ctx.info("Received task", message_id=message_id)
                 try:
-                    # Process the task
-                    await self.process_task(task_data)
-                    
-                    # Acknowledge only after successful processing
-                    ack_success = await self.task_manager.acknowledge_task(task_data)
-                    if ack_success:
-                        log.info("Task acknowledged after successful processing", task_id=task_id)
-                    else:
-                        log.error("Failed to acknowledge task", task_id=task_id)
+                    process_success = await self.process_task(entry=entry)
+                    log_ctx.info("Task processed", process_success=process_success)
+                    if process_success:
+                        await self.task_manager.acknowledge_task(message_id=message_id):
                 except Exception as e:
-                    log.error("Error processing task", task_id=task_id, error=str(e), exc_info=True)
-                    # Don't acknowledge - will be redelivered to another consumer after idle timeout
+                    log_ctx.error("Error processing task", error=str(e), exc_info=True)
                 
             except Exception as e:
-                log.error("Error in read_tasks loop", error=str(e), exc_info=True)
+                log_ctx.error("Error in read_tasks loop", error=str(e), exc_info=True)
                 await asyncio.sleep(1)  # Avoid tight loop on persistent errors
 
     

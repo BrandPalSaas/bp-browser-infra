@@ -181,7 +181,7 @@ class TaskManager:
             log.error("Failed to create consumer group", error=str(e), exc_info=True)
             return False
     
-    async def read_next_task(self, consumer_name, block_ms=2000):
+    async def read_next_task(self, consumer_name, block_ms=2000) -> tuple[str, TaskEntry] | None:
         """
         Read the next task from the Redis stream.
         
@@ -208,6 +208,8 @@ class TaskManager:
             if not tasks:  # No new messages
                 return None
                 
+            log.info("Tasks found", tasks=tasks)
+                
             # Process the first task
             for stream_name, messages in tasks:
                 for message_id, data in messages:
@@ -215,7 +217,7 @@ class TaskManager:
                     task_data = {k.decode('utf-8') if isinstance(k, bytes) else k: 
                                 v.decode('utf-8') if isinstance(v, bytes) else v 
                                 for k, v in data.items()}
-                    task_data['message_id'] = message_id.decode('utf-8') if isinstance(message_id, bytes) else message_id
+                    resolved_message_id = message_id.decode('utf-8') if isinstance(message_id, bytes) else message_id
                     
                     # Get the task details from Redis
                     task_id = task_data.get('task_id')
@@ -230,49 +232,34 @@ class TaskManager:
                                 entry.response.task_status = BrowserTaskStatus.RUNNING
                                 entry.start_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                 await self.redis.set(result_key, json.dumps(entry.model_dump()), ex=36000)
-                                
-                                # Add the entry to the task data
-                                task_data['entry'] = entry
-                                return task_data
+
+                                return resolved_message_id, entry
                             except Exception as e:
                                 log.error("Error updating task status", task_id=task_id, error=str(e))
+                                return
                     
-                    # If we get here, we have a task_id but couldn't find or update the entry
-                    log.warning("Task found in stream but no valid entry in Redis", task_id=task_id)
-                    return task_data
-            
-            return None
+                    log.error("Task found in stream but no valid entry in Redis", task_id=task_id)
+                    return
+
         except Exception as e:
             log.error("Error reading task", error=str(e), exc_info=True)
             await asyncio.sleep(1)  # Avoid tight loop on persistent errors
-            return None
     
-    async def acknowledge_task(self, task_data) -> bool:
+    async def acknowledge_task(self, message_id: str):
         """
         Acknowledge that a task has been processed.
         
         Args:
             task_data: The task data containing message_id
         """
-        if not task_data or 'message_id' not in task_data:
-            log.error("Cannot acknowledge task: no message_id provided")
-            return False
-            
         try:
             if not await self.ensure_redis_connection():
                 return False
                 
-            # Acknowledge the message
-            await self.redis.xack(
-                name=self.task_stream,
-                groupname=self.group_name,
-                id=task_data['message_id']
-            )
-            
-            return True
+            await self.redis.xack(name=self.task_stream, groupname=self.group_name, id=message_id)
+            log.info("Task acknowledged", message_id=message_id)
         except Exception as e:
             log.error("Error acknowledging task", error=str(e), exc_info=True)
-            return False
     
     async def update_task_result(self, task_id: str, status: BrowserTaskStatus, response=None, exception=None) -> bool:
         """

@@ -34,7 +34,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Install worker-specific packages
-RUN pip install playwright==1.41.2 browser-use==0.1.40
+RUN pip install playwright==1.51.0 browser-use==0.1.40
 
 # Copy common modules
 COPY common/ /app/common/
