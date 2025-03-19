@@ -25,39 +25,13 @@ class BrowserTaskResponse(BaseModel):
     task_status: BrowserTaskStatus
     task_response: str
 
-class ProfileStatus(str, Enum):
-    RUNNING = "running"
-    STOPPED = "stopped"
 
-class ProfileRequest(BaseModel):
-    name: str
-    proxy: Optional[str] = None
-    user_agent: Optional[str] = None
-    session_id: str  # Reference to existing session
-
-class Profile(ProfileRequest):
-    id: str
-    created_at: datetime
-    status: ProfileStatus = ProfileStatus.STOPPED
-
-class ActionResult(BaseModel):
-    """Model for an action result."""
-    type: str
-    success: bool
-    selector: Optional[str] = None
-    data: Optional[str] = None
-    text: Optional[str] = None
-    error: Optional[str] = None
-    result: Optional[Any] = None
-    format: Optional[str] = None
-    path: Optional[str] = None
-    duration: Optional[int] = None
-
-class TaskResult(BaseModel):
-    """Model for a task result."""
+class TaskEntry(BaseModel):
     task_id: str
-    result: Optional[Any] = None
-    status: str
-    success: Optional[bool] = None
-    url: Optional[str] = None
-    results: Optional[List[ActionResult]] = None
+    request: BrowserTaskResponse
+    response: BrowserTaskResponse
+    created_at: str
+    start_at: str
+    end_at: str
+    
+    

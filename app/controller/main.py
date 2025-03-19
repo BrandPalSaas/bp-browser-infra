@@ -38,40 +38,20 @@ async def start_browser_task(task: BrowserTaskRequest):
     Submit a browser task for execution.
     """
     try:
-        # Submit task directly to Redis
-        result = await task_manager.submit_task(task)
-        log.info("Task submitted successfully", task_id=result["task_id"])
-
-        return BrowserTaskResponse(
-            task_id=result["task_id"],
-            status=result["status"],
-            message=result.get("message", "Task submitted")
-        )
+        return await task_manager.submit_task(task)
     except Exception as e:
-        log.error("Error submitting task", error=str(e), exc_info=True)
+        log.error("Error submitting task", task=task, error=str(e), exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/browser/task/{task_id}", response_model=TaskResult)
-async def get_task_result(task_id: str, wait: bool = False):
+@app.get("/browser/task/{task_id}", response_model=BrowserTaskResponse)
+async def get_task_result(task_id: str):
     """
     Get the result of a browser task.
     
     If wait=True, the request will wait for up to 30 seconds for the task to complete.
     """
     try:
-        # Get result with timeout if wait=True
-        result = await task_manager.get_task_result(task_id, timeout=30 if wait else 0)
-        
-        # Convert to TaskResult model
-        return TaskResult(
-            task_id=task_id,
-            status=result.get("status", "unknown"),
-            success=result.get("success", None),
-            error=result.get("error", None),
-            result=result.get("result", None),
-            results=result.get("results", None),
-            url=result.get("url", None)
-        )
+        return await task_manager.get_task_result(task_id)
     except Exception as e:
         log.error("Error getting task result", task_id=task_id, error=str(e), exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

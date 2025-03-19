@@ -5,8 +5,9 @@ import json
 import redis.asyncio as redis
 import structlog
 import ssl
+from datetime import datetime
 
-from app.common.models import BrowserTaskRequest, BrowserTaskStatus, BrowserTaskResponse
+from app.common.models import BrowserTaskRequest, BrowserTaskStatus, BrowserTaskResponse, TaskEntry
 
 log = structlog.get_logger(__name__)
 
@@ -88,18 +89,20 @@ class TaskManager:
                 return BrowserTaskResponse(task_id=task_id, task_status=BrowserTaskStatus.FAILED, task_response="Failed to connect to Redis")
             
             # Add task to the stream
-            redis_task = {
-                'task_id': task_id,
-                'payload': json.dumps(task_data.model_dump()),
-                'enqueue_at': str(int(time.time() * 1000)),
-            }
+            redis_task = {'task_id': task_id }
             
             # Initialize the task result in Redis with pending status
             result_key = f"{self.results_key_prefix}{task_id}"
             initial_result = BrowserTaskResponse(task_id=task_id, task_status=BrowserTaskStatus.WAITING)
+            entry = TaskEntry(
+                task_id=task_id,
+                request=task_data,
+                response=initial_result,
+                created_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            )
             
             # Store the initial result
-            await self.redis.set(result_key, json.dumps(initial_result.model_dump()), ex=36000)  # 10 hour expiry
+            await self.redis.set(result_key, json.dumps(entry.model_dump()), ex=36000)  # 10 hour expiry
             
             # Add to task stream
             log_ctx.info("Adding task to Redis stream", task_id=task_id, task_data=task_data)
@@ -109,7 +112,7 @@ class TaskManager:
                 maxlen=100000,  # Limit stream length
                 approximate=True
             )
-            return BrowserTaskResponse(task_id=task_id, task_status=BrowserTaskStatus.WAITING)
+            return initial_result
 
         except Exception as e:
             log_ctx.error("Error submitting task", error=str(e), exc_info=True)
@@ -139,7 +142,9 @@ class TaskManager:
             if result_json:
                 # Parse the result
                 result = json.loads(result_json)
-                return BrowserTaskResponse(**result)
+                entry = TaskEntry(**result)
+                log_ctx.info("Result found", task_id=task_id, result=entry.response)
+                return entry.response
             
             log_ctx.error("Result not found", task_id=task_id)
             return BrowserTaskResponse(task_id=task_id, task_status=BrowserTaskStatus.FAILED, task_response="Result not found")
