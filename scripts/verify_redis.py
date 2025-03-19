@@ -34,20 +34,20 @@ async def verify_redis():
     print(f"Connecting to Redis at {redis_host}:{redis_port}")
     
     try:
-        # Set up SSL if needed
-        ssl_connection = None
+        # Connection parameters
+        connection_params = {
+            "host": redis_host, 
+            "port": redis_port,
+            "password": redis_password if redis_password else None,
+            "ssl": redis_ssl,
+        }
+        
+        # Some Redis clients use ssl_cert_reqs instead of ssl_context
         if redis_ssl:
-            ssl_connection = ssl.create_default_context()
+            connection_params["ssl_cert_reqs"] = None
         
         # Connect to Redis
-        r = redis.Redis(
-            host=redis_host,
-            port=redis_port,
-            password=redis_password if redis_password else None,
-            ssl=redis_ssl,
-            ssl_cert_reqs=None if redis_ssl else None,
-            ssl_context=ssl_connection
-        )
+        r = redis.Redis(**connection_params)
         
         # Check connection
         await r.ping()

@@ -1,6 +1,5 @@
 from pydantic import BaseModel
 from typing import Dict, List, Optional, Any
-from datetime import datetime
 from enum import Enum
 
 # Session and Profile models (controller-only)
@@ -23,15 +22,15 @@ class BrowserTaskResponse(BaseModel):
     """Model for a task execution response."""
     task_id: str
     task_status: BrowserTaskStatus
-    task_response: str
+    task_response: Optional[str] = None
 
 
 class TaskEntry(BaseModel):
     task_id: str
-    request: BrowserTaskResponse
+    request: BrowserTaskRequest
     response: BrowserTaskResponse
     created_at: str
-    start_at: str
-    end_at: str
+    start_at: Optional[str] = None
+    end_at: Optional[str] = None
     
     

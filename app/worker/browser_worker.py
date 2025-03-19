@@ -51,20 +51,20 @@ class BrowserWorker:
                      port=self.redis_port,
                      ssl=self.redis_ssl)
             
-            # Set up SSL if needed
-            ssl_connection = None
+            # Connection parameters
+            connection_params = {
+                "host": self.redis_host, 
+                "port": self.redis_port,
+                "password": self.redis_password if self.redis_password else None,
+                "ssl": self.redis_ssl,
+            }
+            
+            # Some Redis clients use ssl_cert_reqs instead of ssl_context
             if self.redis_ssl:
-                ssl_connection = ssl.create_default_context()
+                connection_params["ssl_cert_reqs"] = None
             
             # Connect to Redis
-            self.redis = redis.Redis(
-                host=self.redis_host, 
-                port=self.redis_port,
-                password=self.redis_password if self.redis_password else None,
-                ssl=self.redis_ssl,
-                ssl_cert_reqs=None if self.redis_ssl else None,
-                ssl_context=ssl_connection
-            )
+            self.redis = redis.Redis(**connection_params)
             
             # Check connection
             await self.redis.ping()
