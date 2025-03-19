@@ -1,30 +1,20 @@
-from browser_use import Agent
-from playwright.async_api import async_playwright
+from browser_use import Agent, BrowserConfig, Browser
 import os
-import time
 import json
 import asyncio
 import structlog
 import socket
+from langchain_openai import ChatOpenAI
+
 from app.common.models import BrowserTaskStatus, TaskEntry
 from app.common.task_manager import TaskManager
-from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
 load_dotenv()
 
-# Configure structlog
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.JSONRenderer()
-    ]
-)
-
-log = structlog.get_logger()
+log = structlog.get_logger(__name__)
 
 class BrowserWorker:
     def __init__(self):
-        self.playwright = None
         self.browser = None
         self.ready = False
         self.running = True
@@ -40,12 +30,8 @@ class BrowserWorker:
             return False
         
         try:
-            log.info("Initializing Playwright and browser")
-            self.playwright = await async_playwright().start()
-            self.browser = await self.playwright.chromium.launch(
-                headless=False,
-                args=['--no-sandbox', '--disable-setuid-sandbox']
-            )
+            log.info("Initializing browser")
+            self.browser = Browser(config=BrowserConfig(headless=False, disable_security=True))
             self.ready = True
             log.info("Browser initialized and ready")
             return True
@@ -79,7 +65,7 @@ class BrowserWorker:
             return True
         
         except Exception as e:
-            log_ctx.error("Error processing task", error=str(e), exc_info=True)
+            log_ctx.exception("Error processing task", error=str(e), exc_info=True)
             await self.task_manager.update_task_result(task_id, BrowserTaskStatus.FAILED, exception=str(e))
             return False
 
@@ -108,12 +94,12 @@ class BrowserWorker:
                     process_success = await self.process_task(entry=entry)
                     log_ctx.info("Task processed", process_success=process_success)
                     if process_success:
-                        await self.task_manager.acknowledge_task(message_id=message_id):
+                        await self.task_manager.acknowledge_task(message_id=message_id)
                 except Exception as e:
-                    log_ctx.error("Error processing task", error=str(e), exc_info=True)
+                    log_ctx.exception("Error processing task", error=str(e), exc_info=True)
                 
             except Exception as e:
-                log_ctx.error("Error in read_tasks loop", error=str(e), exc_info=True)
+                log_ctx.exception("Error in read_tasks loop", error=str(e), exc_info=True)
                 await asyncio.sleep(1)  # Avoid tight loop on persistent errors
 
     
@@ -125,10 +111,6 @@ class BrowserWorker:
         if self.browser:
             await self.browser.close()
             log.info("Browser closed")
-        
-        if self.playwright:
-            await self.playwright.stop()
-            log.info("Playwright stopped")
         
         # Close Redis connection
         if self.task_manager and self.task_manager.redis:

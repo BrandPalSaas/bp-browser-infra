@@ -1,16 +1,9 @@
-import structlog
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.JSONRenderer()
-    ]
-)
-
 from fastapi import FastAPI, HTTPException, Depends
 import os
 from app.common.task_manager import TaskManager, get_task_manager
 from app.common.models import BrowserTaskRequest, BrowserTaskResponse
 
+import structlog
 log = structlog.get_logger(__name__)
 
 app = FastAPI(title="Browser Infrastructure API")

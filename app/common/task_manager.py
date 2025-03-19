@@ -59,7 +59,7 @@ class TaskManager:
             log.info("Connected to Redis successfully")
             return True
         except Exception as e:
-            log.error("Failed to connect to Redis", error=str(e), exc_info=True)
+            log.exception("Failed to connect to Redis", error=str(e), exc_info=True)
             return False
 
     async def ensure_redis_connection(self) -> bool:
@@ -116,7 +116,7 @@ class TaskManager:
             return initial_result
 
         except Exception as e:
-            log_ctx.error("Error submitting task", error=str(e), exc_info=True)
+            log_ctx.exception("Error submitting task", error=str(e), exc_info=True)
             return BrowserTaskResponse(task_id=task_id, task_status=BrowserTaskStatus.FAILED, task_response=f"Error submitting task: {e}")
 
     async def get_task_result(self, task_id) -> BrowserTaskResponse:
@@ -151,7 +151,7 @@ class TaskManager:
             return BrowserTaskResponse(task_id=task_id, task_status=BrowserTaskStatus.FAILED, task_response="Result not found")
         
         except Exception as e:
-            log_ctx.error("Error getting result", error=str(e), exc_info=True)
+            log_ctx.exception("Error getting result", error=str(e), exc_info=True)
             return BrowserTaskResponse(task_id=task_id, task_status=BrowserTaskStatus.FAILED, task_response=f"Error getting result: {str(e)}")
     
     async def create_consumer_group(self) -> bool:
@@ -178,7 +178,7 @@ class TaskManager:
                     
             return True
         except Exception as e:
-            log.error("Failed to create consumer group", error=str(e), exc_info=True)
+            log.exception("Failed to create consumer group", error=str(e), exc_info=True)
             return False
     
     async def read_next_task(self, consumer_name, block_ms=2000) -> tuple[str, TaskEntry] | None:
@@ -208,7 +208,7 @@ class TaskManager:
             if not tasks:  # No new messages
                 return None
                 
-            log.info("Tasks found", tasks=tasks)
+            log.info("Tasks found", task_count=len(tasks))
                 
             # Process the first task
             for stream_name, messages in tasks:
@@ -235,31 +235,28 @@ class TaskManager:
 
                                 return resolved_message_id, entry
                             except Exception as e:
-                                log.error("Error updating task status", task_id=task_id, error=str(e))
+                                log.exception("Error updating task status", task_id=task_id, error=str(e))
                                 return
                     
                     log.error("Task found in stream but no valid entry in Redis", task_id=task_id)
                     return
 
         except Exception as e:
-            log.error("Error reading task", error=str(e), exc_info=True)
+            log.exception("Error reading task", error=str(e), exc_info=True)
             await asyncio.sleep(1)  # Avoid tight loop on persistent errors
     
     async def acknowledge_task(self, message_id: str):
         """
         Acknowledge that a task has been processed.
-        
-        Args:
-            task_data: The task data containing message_id
         """
         try:
             if not await self.ensure_redis_connection():
-                return False
+                return
                 
-            await self.redis.xack(name=self.task_stream, groupname=self.group_name, id=message_id)
+            await self.redis.xack(self.task_stream, self.group_name, message_id)
             log.info("Task acknowledged", message_id=message_id)
         except Exception as e:
-            log.error("Error acknowledging task", error=str(e), exc_info=True)
+            log.exception("Error acknowledging task", error=str(e), exc_info=True, message_id=message_id)
     
     async def update_task_result(self, task_id: str, status: BrowserTaskStatus, response=None, exception=None) -> bool:
         """
@@ -299,7 +296,7 @@ class TaskManager:
             
             return True
         except Exception as e:
-            log.error("Error updating task result", task_id=task_id, error=str(e), exc_info=True)
+            log.exception("Error updating task result", task_id=task_id, error=str(e), exc_info=True)
             return False
 
 # Function to provide TaskManager as a dependency
