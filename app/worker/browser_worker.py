@@ -6,7 +6,7 @@ import structlog
 import socket
 from langchain_openai import ChatOpenAI
 
-from app.common.models import BrowserTaskStatus, TaskEntry
+from app.common.models import BrowserTaskStatus, TaskEntry, RawResponse
 from app.common.task_manager import TaskManager
 from dotenv import load_dotenv
 load_dotenv()
@@ -58,10 +58,18 @@ class BrowserWorker:
             
             # Process the task
             result = await agent.run()
-            log_ctx.info("Task completed successfully", result=result)
+            raw_response = RawResponse(
+                total_duration_seconds=result.total_duration_seconds(),
+                total_input_tokens=result.total_input_tokens(),
+                num_of_steps=result.number_of_steps(),
+                is_successful=result.is_successful(),
+                has_errors=result.has_errors(),
+                final_result=result.final_result())
+
+            log_ctx.info("Task completed successfully", result=raw_response)
             
             # Update task result
-            await self.task_manager.update_task_result(task_id, BrowserTaskStatus.COMPLETED, response=json.dumps(result.model_dump()))
+            await self.task_manager.update_task_result(task_id, BrowserTaskStatus.COMPLETED, response=json.dumps(raw_response.model_dump()))
             return True
         
         except Exception as e:

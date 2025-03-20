@@ -8,32 +8,6 @@ This project implements a browser infrastructure system utilizing Kubernetes and
 - **Worker**: Service that processes browser automation tasks from Redis queues
 - **Redis**: External Redis server used for task queuing and results
 
-## Dependency Management
-
-The project uses a split dependency management approach:
-
-- **Core dependencies** are managed in the shared `requirements.txt` file at the project root
-- **Worker-specific dependencies** (like Playwright and browser-use) are installed directly in the worker Dockerfile
-- **Controller-specific dependencies** are listed in the shared requirements.txt
-
-This approach ensures that the controller doesn't need to install the heavy browser automation dependencies.
-
-### Development Setup
-
-For development, you can use the setup script:
-
-```bash
-# Setup with interactive prompts
-./scripts/setup_dev.sh
-
-# Or specify components explicitly
-./scripts/setup_dev.sh --worker     # For worker development
-./scripts/setup_dev.sh --controller # For controller development
-./scripts/setup_dev.sh --all        # For both
-```
-
-## Setup with External Redis
-
 ### Prerequisites
 
 - Kubernetes cluster
@@ -70,10 +44,10 @@ For development, you can use the setup script:
 
    ```bash
    # Build controller image
-   docker build -t us-central1-docker.pkg.dev/browser-infra/browser-infra/controller:latest -f controller/Dockerfile .
+   docker build -t us-central1-docker.pkg.dev/browser-infra/browser-infra/controller:latest -f app/controller/Dockerfile .
    
    # Build worker image
-   docker build -t us-central1-docker.pkg.dev/browser-infra/browser-infra/worker:latest -f worker/Dockerfile .
+   docker build -t us-central1-docker.pkg.dev/browser-infra/browser-infra/worker:latest -f app/worker/Dockerfile .
    
    # Push to your container registry
    docker push us-central1-docker.pkg.dev/browser-infra/browser-infra/controller:latest
@@ -95,20 +69,6 @@ For development, you can use the setup script:
    # Check controller service
    kubectl get svc
    ```
-
-## Usage
-
-The controller exposes an API endpoint for submitting browser automation tasks:
-
-```bash
-curl -X POST http://<controller-service-ip>/browser/use -H "Content-Type: application/json" -d '{
-  "url": "https://example.com",
-  "actions": [
-    {"type": "wait", "duration": 2000},
-    {"type": "screenshot"}
-  ]
-}'
-```
 
 ## Development
 
@@ -139,42 +99,171 @@ To run the system locally for development:
    python main.py
    ```
 
-## Scaling
+## Local Testing with Minikube
 
-To scale the number of workers:
+For testing the complete system locally with Kubernetes before deploying to a production cluster, you can use Minikube:
+
+### Prerequisites
+
+- [Minikube](https://minikube.sigs.k8s.io/docs/start/) installed
+- [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/) installed
+- [Docker](https://docs.docker.com/get-docker/) installed
+- Redis running locally (as described below)
+
+### Setting Up Redis for Local Testing
+
+For the browser infrastructure to work properly with Minikube, you need Redis running on your host machine:
 
 ```bash
-kubectl scale deployment worker-deployment --replicas=5
+# macOS: Install and start Redis using Homebrew
+brew install redis
+brew services start redis
+
+# Verify Redis is running
+redis-cli ping  # Should return "PONG"
 ```
 
-## Troubleshooting
+Make sure Redis is configured to accept external connections:
 
-- **Redis Connection Issues**: Ensure your network policies allow traffic to the Redis server
-- **Worker Errors**: Check the worker logs for details about task execution issues
-- **Controller API Unavailable**: Verify the service and endpoints are correctly configured
+```bash
+# Edit Redis config to allow external connections
+# For Homebrew installations, edit /usr/local/etc/redis.conf
+# Change "bind 127.0.0.1" to "bind 0.0.0.0"
 
-## Project Structure
+# Restart Redis to apply changes
+brew services restart redis
+```
 
-- `controller/`: API service for queueing browser tasks
-- `worker/`: Service for processing browser tasks
-- `common/`: Shared models and utilities used by both components
-- `k8s/`: Kubernetes configuration files
-  - Deployments, services, and configuration
+The `deploy_to_minikube.sh` script will automatically configure Minikube to connect to your host Redis instance.
 
-## API Endpoints
+### Setup and Deployment
 
-- `GET /` - API info
-- `POST /sessions` - Start a new browser session
-- `GET /sessions` - List all sessions
-- `GET /sessions/{session_id}` - Get session details
-- `DELETE /sessions/{session_id}` - Stop a session
-- `POST /profiles` - Create a browser profile
-- `GET /profiles` - List all profiles
-- `GET /profiles/{profile_id}` - Get profile details
-- `DELETE /profiles/{profile_id}` - Delete a profile
+1. **Start Minikube**
 
-## Features
+   ```bash
+   minikube start
+   ```
 
-- Scalable browser infrastructure
-- Kubernetes deployment support
-- Session and profile management 
+2. **Build Docker Images in Minikube**
+
+   Point your Docker CLI to Minikube's Docker daemon and build the images:
+
+   ```bash
+   # Configure Docker to use Minikube's Docker daemon
+   eval $(minikube docker-env)
+   
+   # Build images directly in Minikube's environment
+   docker build -t browser-controller:latest -f app/controller/Dockerfile .
+   docker build -t browser-worker:latest -f app/worker/Dockerfile .
+   ```
+
+3. **Run the Deployment Script**
+
+   We provide a script that handles the deployment to Minikube:
+
+   ```bash
+   # Ensure Redis is running locally first
+   ./scripts/deploy_to_minikube.sh
+   ```
+
+   This script will:
+   - Configure Docker to use Minikube's daemon
+   - Build the Docker images
+   - Configure the system to use your local Redis
+   - Deploy the controller and worker components
+   - Set up port forwarding for accessing the API
+
+4. **Accessing the API**
+
+   After successful deployment, the API will be available at:
+   
+   ```
+   http://localhost:8000
+   ```
+
+5. **Cleanup**
+
+   To stop and clean up your Minikube deployment:
+
+   ```bash
+   # Stop port forwarding (if running)
+   pkill -f "kubectl port-forward"
+   
+   # Delete deployments
+   kubectl delete -f k8s/controller-deployment.yaml
+   kubectl delete -f k8s/worker-deployment.yaml
+   
+   # Stop Minikube (optional)
+   minikube stop
+   ```
+
+### Troubleshooting Minikube Deployment
+
+- **Redis connection fails**: 
+  - Check Redis is running: `brew services list | grep redis`
+  - Ensure Redis is listening on all interfaces and not just localhost
+  - Test connectivity from Minikube: `minikube ssh "nc -zv $(minikube ssh 'route -n | grep ^0.0.0.0 | awk "{print \$2}"') 6379"`
+
+- **Images not found**: Make sure you built the images within Minikube's Docker environment
+- **Pods crash-looping**: Check logs with `kubectl logs <pod-name>`
+
+## API Usage Examples
+
+Here are some example curl commands to interact with the browser infrastructure API:
+
+### Create a Browser Task
+
+```bash
+# Create a simple navigation and screenshot task
+curl -X POST http://localhost:8000/browser/task \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com",
+    "actions": [
+      {"type": "wait", "duration": 2000},
+      {"type": "screenshot", "fullPage": true}
+    ]
+  }'
+
+# Response will include a task_id
+# Example response: {"task_id": "task_12345", "status": "queued"}
+```
+
+### Poll for Task Status
+
+```bash
+# Check status of a specific task
+curl -X GET http://localhost:8000/browser/task/task_12345 \
+  -H "Content-Type: application/json"
+
+# Example response: {"task_id": "task_12345", "status": "completed", "result": {"screenshot": "data:image/png;base64,..."}}
+```
+
+### Complex Task Example
+
+```bash
+# Create a more complex task with multiple actions
+curl -X POST http://localhost:8000/browser/task \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com/login",
+    "actions": [
+      {"type": "wait", "selector": "#username"},
+      {"type": "type", "selector": "#username", "text": "testuser"},
+      {"type": "type", "selector": "#password", "text": "password123"},
+      {"type": "click", "selector": "#login-button"},
+      {"type": "wait", "duration": 3000},
+      {"type": "screenshot", "fullPage": true}
+    ]
+  }'
+```
+
+### List All Tasks
+
+```bash
+# Get a list of all tasks
+curl -X GET http://localhost:8000/browser/tasks \
+  -H "Content-Type: application/json"
+
+# Example response: {"tasks": [{"task_id": "task_12345", "status": "completed"}, {"task_id": "task_67890", "status": "running"}]}
+```

@@ -24,6 +24,14 @@ class BrowserTaskResponse(BaseModel):
     task_status: BrowserTaskStatus
     task_response: Optional[str] = None
 
+class RawResponse(BaseModel):
+    total_duration_seconds: float
+    total_input_tokens: int
+    num_of_steps: int
+    is_successful: bool
+    has_errors: bool
+    final_result: Optional[str] = None
+
 
 class TaskEntry(BaseModel):
     task_id: str
