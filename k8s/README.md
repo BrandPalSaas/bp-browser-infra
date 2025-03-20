@@ -25,6 +25,8 @@ The system is configured to connect to a Redis server running on your local mach
 To deploy the system:
 
 ```bash
+# Add credentials to `config.yaml`
+
 # Apply all resources
 kubectl apply -k k8s/
 

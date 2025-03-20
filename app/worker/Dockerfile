@@ -1,7 +1,7 @@
 # Use Python 3.11 as base
 FROM python:3.11-slim
 
-WORKDIR /app
+WORKDIR /brandpal
 
 # Install system dependencies for Playwright
 RUN apt-get update && apt-get install -y \
@@ -36,19 +36,19 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Install worker-specific packages
 RUN pip install playwright==1.51.0 browser-use==0.1.40
 
-# Copy the application code
-COPY app /app
+# Copy the entire app directory
+COPY app /brandpal/app
 
 # Install Playwright browsers
 RUN playwright install chromium
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/brandpal
 ENV HEALTH_PORT=3000
 
 # Expose health check port
 EXPOSE 3000
 
 # Run the worker
-CMD ["python", "worker/main.py"] 
+CMD ["python", "app/worker/main.py"] 

@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-WORKDIR /app
+WORKDIR /brandpal
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -11,15 +11,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the application code
-COPY app /app
+# Copy the entire app directory
+COPY app /brandpal/app
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/brandpal
 
 # Expose port
 EXPOSE 8000
 
 # Run the application
-CMD ["python", "controller/main.py"] 
+CMD ["python", "app/controller/main.py"] 
