@@ -6,6 +6,6 @@ data:
   # Redis configuration for local Redis server on host machine
   REDIS_HOST: "r-rj9rt0snyetm52iqjrpd.redis.rds.aliyuncs.com"
   REDIS_PORT: "6379"
-  REDIS_PASSWORD: "8&NlCTW7!u0f" # TODO: update password using the value in .env
+  REDIS_PASSWORD: "" # TODO: update password using the value in .env
   REDIS_DB: "200"     
   REDIS_SSL: "false"

@@ -65,6 +65,84 @@ This project implements a browser infrastructure system utilizing Kubernetes and
    kubectl get svc
    ```
 
+## Deploying to Minikube
+
+1. **Configure Docker to use Minikube's daemon**
+   ```bash
+   eval $(minikube docker-env)
+   ```
+
+2. **Build Docker images in Minikube's environment**
+   ```bash
+   # Build controller image
+   docker build -t browser-controller:latest -f app/controller/Dockerfile .
+   
+   # Build worker image
+   docker build -t browser-worker:latest -f app/worker/Dockerfile .
+   ```
+
+3. **Update Redis Configuration**
+   
+   Edit `k8s/config.yaml` to use your Redis settings:
+   ```yaml
+   apiVersion: v1
+   kind: ConfigMap
+   metadata:
+     name: browser-infra-config
+   data:
+     REDIS_HOST: "r-rj9rt0snyetm52iqjrpd.redis.rds.aliyuncs.com"
+     REDIS_PORT: "6379"
+     REDIS_DB: "200"
+     REDIS_SSL: "false"
+     REDIS_STREAM: "browser_tasks"
+     REDIS_RESULTS_PREFIX: "task_result_"
+     REDIS_GROUP: "browser_workers"
+   ```
+
+4. **Create Redis Secret**
+   
+   Create `k8s/redis-secret.yaml`:
+   ```yaml
+   apiVersion: v1
+   kind: Secret
+   metadata:
+     name: redis-secret
+   type: Opaque
+   data:
+     REDIS_PASSWORD: <base64-encoded-password>
+   ```
+   
+   Generate the base64 password:
+   ```bash
+   echo -n "8&NlCTW7!u0f" | base64
+   ```
+
+5. **Deploy to Minikube**
+   ```bash
+   kubectl apply -k k8s/
+   ```
+
+6. **Verify Deployment**
+   ```bash
+   # Check pods
+   kubectl get pods
+   
+   # Check services
+   kubectl get svc
+   
+   # Check logs if needed
+   kubectl logs -l app=browser-controller
+   kubectl logs -l app=browser-worker
+   ```
+
+7. **Access the API**
+   ```bash
+   # Port forward the controller service
+   kubectl port-forward service/controller-service 8000:8000
+   ```
+
+The API will be available at `http://localhost:8000`
+
 ## Development
 
 To run the system locally for development:
