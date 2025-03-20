@@ -1,6 +1,5 @@
 import os
 import uuid
-import time
 import json
 import redis.asyncio as redis
 import structlog
@@ -17,10 +16,11 @@ class TaskManager:
         self.redis_host = os.getenv("REDIS_HOST", "localhost")
         self.redis_port = int(os.getenv("REDIS_PORT", 6379))
         self.redis_password = os.getenv("REDIS_PASSWORD", "")
+        self.redis_db = int(os.getenv("REDIS_DB", 0))
         self.redis_ssl = os.getenv("REDIS_SSL", "false").lower() == "true"
-        self.task_stream = os.getenv("REDIS_STREAM", "browser_tasks")
+        self.task_stream = "browser_tasks"
         self.results_key_prefix = "task_result_"
-        self.group_name = os.getenv("REDIS_GROUP", "browser_workers")
+        self.group_name = "browser_workers"
         self.redis = None
         
     async def initialize(self):
@@ -45,6 +45,7 @@ class TaskManager:
                 "port": self.redis_port,
                 "password": self.redis_password if self.redis_password else None,
                 "ssl": self.redis_ssl,
+                "db": self.redis_db
             }
             
             # Some Redis clients use ssl_cert_reqs instead of ssl_context

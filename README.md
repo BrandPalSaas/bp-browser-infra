@@ -21,23 +21,18 @@ This project implements a browser infrastructure system utilizing Kubernetes and
    Edit the `k8s/config.yaml` file to set your Redis connection details:
    
    ```yaml
-   REDIS_HOST: "your-external-redis-host"
-   REDIS_PORT: "6379"
-   REDIS_SSL: "true"  # Set to "false" if not using SSL
-   REDIS_STREAM: "browser_tasks"
-   REDIS_RESULTS_STREAM: "browser_results"
-   REDIS_GROUP: "browser_workers"
-   ```
-
-2. **Set Redis Password**
-
-   Update the Redis password in the `k8s/redis-secret.yaml` file:
-   
-   ```bash
-   # Generate base64 encoded password
-   echo -n "your-redis-password" | base64
-   
-   # Update the secret file with the encoded password
+   apiVersion: v1
+   kind: ConfigMap
+   metadata:
+     name: browser-infra-config
+   data:
+     REDIS_HOST: "your-production-redis-host"
+     REDIS_PORT: "6379"
+     REDIS_SSL: "true"  # Set to "false" if not using SSL
+     REDIS_DB: "0"      # Redis database index (0-15)
+     REDIS_STREAM: "browser_tasks"
+     REDIS_RESULTS_PREFIX: "task_result_"
+     REDIS_GROUP: "browser_workers"
    ```
 
 3. **Build Docker Images**
@@ -74,17 +69,19 @@ This project implements a browser infrastructure system utilizing Kubernetes and
 
 To run the system locally for development:
 
-1. Start a local Redis server:
+1. Create a `.env` file in the project root:
    ```bash
-   docker run -d -p 6379:6379 redis:latest
+   # Redis configuration
+   REDIS_HOST=your-redis-host
+   REDIS_PORT=6379
+   REDIS_SSL=false
+   REDIS_PASSWORD=your-redis-password
+   REDIS_DB=0  # Redis database index (0-15)
    ```
 
-2. Set environment variables:
+2. Start a local Redis server (if not using external Redis):
    ```bash
-   export REDIS_HOST=localhost
-   export REDIS_PORT=6379
-   export REDIS_SSL=false
-   export REDIS_PASSWORD=
+   docker run -d -p 6379:6379 redis:latest
    ```
 
 3. Run the controller:
@@ -98,6 +95,11 @@ To run the system locally for development:
    cd worker
    python main.py
    ```
+
+Note: Make sure to add `.env` to your `.gitignore` file to prevent committing sensitive information:
+```bash
+echo ".env" >> .gitignore
+```
 
 ## Local Testing with Minikube
 

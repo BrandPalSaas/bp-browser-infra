@@ -5,10 +5,12 @@ Browser Worker Main Entry Point
 import asyncio
 import os
 import signal
-import structlog
 from browser_worker import BrowserWorker
 
-# Configure structlog
+from dotenv import load_dotenv
+load_dotenv()
+
+import structlog
 structlog.configure(
     processors=[
         structlog.processors.TimeStamper(fmt="iso"),
@@ -16,7 +18,7 @@ structlog.configure(
     ]
 )
 
-log = structlog.get_logger()
+log = structlog.get_logger(__name__)
 
 async def main():
     """Main entry point."""
