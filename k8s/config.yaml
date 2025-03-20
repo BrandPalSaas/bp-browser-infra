@@ -3,6 +3,7 @@ kind: ConfigMap
 metadata:
   name: browser-infra-config
 data:
+  OPENAI_API_KEY: ""
   # Redis configuration for local Redis server on host machine
   REDIS_HOST: "r-rj9rt0snyetm52iqjrpd.redis.rds.aliyuncs.com"
   REDIS_PORT: "6379"

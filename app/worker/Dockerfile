@@ -46,9 +46,10 @@ RUN playwright install chromium
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/brandpal
 ENV HEALTH_PORT=3000
+ENV DISPLAY=:99
 
 # Expose health check port
 EXPOSE 3000
 
-# Run the worker
-CMD ["python", "app/worker/main.py"] 
+# Run Xvfb and the worker process
+CMD Xvfb :99 -screen 0 1280x1024x24 -ac +extension GLX +render -noreset & python app/worker/main.py 
