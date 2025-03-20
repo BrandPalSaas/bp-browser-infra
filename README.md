@@ -1,202 +1,156 @@
-# Browser Infrastructure with External Redis
+# Browser Infrastructure
 
-This project implements a browser infrastructure system utilizing Kubernetes and an external Redis server for task queue management.
+A scalable browser automation infrastructure system with Redis-based task queuing.
 
-## Architecture
+## Project Structure
 
-- **Controller**: API service that receives browser automation requests and queues them in Redis
-- **Worker**: Service that processes browser automation tasks from Redis queues
-- **Redis**: External Redis server used for task queuing and results
+- **app**: Core application code
+  - **app/controller/**: API service that receives browser automation requests and queues them in Redis
+  - **app/worker/**: Service that processes browser automation tasks from Redis queues  
+  - **app/common/**: Shared models, utilities, and constants used by both services
+
+- **k8s**: Kubernetes configuration files
+  - Configuration maps, deployments, services, and RBAC settings
+
+- **scripts**: Utility scripts for development and deployment
+  - Setup scripts, deployment helpers, etc.
+
+## Testing Without Docker or Kubernetes
 
 ### Prerequisites
 
-- Kubernetes cluster
-- External Redis server (managed service or standalone installation)
-- Docker and kubectl installed
+- Python 3.11+
+- Redis server (local or remote)
+- Browser-use and Playwright dependencies
 
-### Configuration Steps
+### Setup Local Environment
 
-1. **Update Redis Configuration**
-
-   Edit the `k8s/config.yaml` file to set your Redis connection details:
-   
-   ```yaml
-   apiVersion: v1
-   kind: ConfigMap
-   metadata:
-     name: browser-infra-config
-   data:
-     REDIS_HOST: "your-production-redis-host"
-     REDIS_PORT: "6379"
-     REDIS_SSL: "true"  # Set to "false" if not using SSL
-     REDIS_DB: "0"      # Redis database index (0-15)
-     REDIS_STREAM: "browser_tasks"
-     REDIS_RESULTS_PREFIX: "task_result_"
-     REDIS_GROUP: "browser_workers"
-   ```
-
-3. **Build Docker Images**
-
+1. **Install Python dependencies**:
    ```bash
-   # Build controller image
-   docker build -t us-central1-docker.pkg.dev/browser-infra/browser-infra/controller:latest -f app/controller/Dockerfile .
-   
-   # Build worker image
-   docker build -t us-central1-docker.pkg.dev/browser-infra/browser-infra/worker:latest -f app/worker/Dockerfile .
-   
-   # Push to your container registry
-   docker push us-central1-docker.pkg.dev/browser-infra/browser-infra/controller:latest
-   docker push us-central1-docker.pkg.dev/browser-infra/browser-infra/worker:latest
+   pip install -r requirements.txt
+   pip install playwright==1.51.0 browser-use==0.1.40
+   playwright install chromium
    ```
 
-4. **Deploy to Kubernetes**
+2. **Configure Redis**:
 
-   ```bash
-   kubectl apply -k k8s/
-   ```
-
-5. **Verify Deployment**
-
-   ```bash
-   # Check the pods are running
-   kubectl get pods
-   
-   # Check controller service
-   kubectl get svc
-   ```
-
-## Deploying to Minikube
-
-1. **Configure Docker to use Minikube's daemon**
-   ```bash
-   eval $(minikube docker-env)
-   ```
-
-2. **Build Docker images in Minikube's environment**
-   ```bash
-   # Build controller image
-   docker build -t browser-controller:latest -f app/controller/Dockerfile .
-   
-   # Build worker image
-   docker build -t browser-worker:latest -f app/worker/Dockerfile .
-   ```
-
-3. **Update Redis Configuration**
-   
-   Edit `k8s/config.yaml` to use your Redis settings:
-   ```yaml
-   apiVersion: v1
-   kind: ConfigMap
-   metadata:
-     name: browser-infra-config
-   data:
-     REDIS_HOST: "r-rj9rt0snyetm52iqjrpd.redis.rds.aliyuncs.com"
-     REDIS_PORT: "6379"
-     REDIS_DB: "200"
-     REDIS_SSL: "false"
-     REDIS_STREAM: "browser_tasks"
-     REDIS_RESULTS_PREFIX: "task_result_"
-     REDIS_GROUP: "browser_workers"
-   ```
-
-4. **Create Redis Secret**
-   
-   Create `k8s/redis-secret.yaml`:
-   ```yaml
-   apiVersion: v1
-   kind: Secret
-   metadata:
-     name: redis-secret
-   type: Opaque
-   data:
-     REDIS_PASSWORD: <base64-encoded-password>
-   ```
-   
-   Generate the base64 password:
-   ```bash
-   echo -n "8&NlCTW7!u0f" | base64
-   ```
-
-5. **Deploy to Minikube**
-   ```bash
-   kubectl apply -k k8s/
-   ```
-
-6. **Verify Deployment**
-   ```bash
-   # Check pods
-   kubectl get pods
-   
-   # Check services
-   kubectl get svc
-   
-   # Check logs if needed
-   kubectl logs -l app=browser-controller
-   kubectl logs -l app=browser-worker
-   ```
-
-7. **Access the API**
-   ```bash
-   # Port forward the controller service
-   kubectl port-forward service/controller-service 8000:8000
-   ```
-
-The API will be available at `http://localhost:8000`
-
-## Development
-
-To run the system locally for development:
-
-1. Create a `.env` file in the project root:
-   ```bash
-   # Redis configuration
-   OPENAI_API_KEY=XXX
-   REDIS_HOST=your-redis-host
-   REDIS_PORT=6379
-   REDIS_SSL=false
-   REDIS_PASSWORD=your-redis-password
-   REDIS_DB=0  # Redis database index (0-15)
-   ```
-
-2. Start a local Redis server (if not using external Redis):
+   Install and start Redis locally (macOS):
    ```bash
    brew install redis
-   brew services start[stop] redis
+   brew services start redis
    ```
 
-3. Run the controller:
+3. **Create a `.env` file in the project root**:
    ```bash
-   cd controller
+   OPENAI_API_KEY=XXX
+   REDIS_HOST=localhost
+   REDIS_PORT=6379
+   REDIS_SSL=false
+   REDIS_PASSWORD=
+   REDIS_DB=0
+   ```
+
+### Running the Services
+
+1. **Run the controller**:
+   ```bash
+   cd app/controller
    python main.py
    ```
 
-4. Run the worker:
+2. **Run the worker** (in a separate terminal):
    ```bash
-   cd worker
+   cd app/worker
    python main.py
    ```
-```
 
-## API Usage Examples
+### Testing the API
 
-Here are some example curl commands to interact with the browser infrastructure API:
-
-### Create a Browser Task
+The API will be available at `http://localhost:8000`. Examples:
 
 ```bash
-# Create a simple navigation and screenshot task
+# Create a browser task
 curl -X POST http://localhost:8000/browser/task \
   -H "Content-Type: application/json" \
   -d '{
     "task_description": "go to google.com and search xiao.liang and returns the first result page title",
     "task_domain": "tiktokshop"
   }'
-```
 
-### Poll for Task Status
-
-```bash
-# Check status of a specific task
+# Check task status (replace with your task_id)
 curl -X GET http://localhost:8000/browser/task/task_12345 \
   -H "Content-Type: application/json"
+```
+
+## Deployment with Docker/Kubernetes
+
+### Deployment with Minikube
+
+Minikube is a lightweight Kubernetes implementation that creates a VM on your local machine and deploys a simple single-node cluster. 
+
+1. **Start Minikube**:
+   ```bash
+   brew install minikube
+   minikube start
+   ```
+
+2. **Configure Docker to use Minikube's daemon**:
+   ```bash
+   eval $(minikube docker-env)
+   ```
+
+3. **Build Docker images in Minikube's environment**:
+   ```bash
+   docker build -t browser-controller:latest -f app/controller/Dockerfile .
+   docker build -t browser-worker:latest -f app/worker/Dockerfile .
+   ```
+
+4. **Configure value**:
+   
+   Edit `k8s/config.yaml` with your Redis settings:
+   ```yaml
+   apiVersion: v1
+   kind: ConfigMap
+   metadata:
+     name: browser-infra-config
+   data:
+     OPENAI_API_KEY: "keys"
+     REDIS_HOST: "your-redis-host"
+     REDIS_PORT: "6379"
+     REDIS_SSL: "false"
+     REDIS_DB: "0"
+   ```
+
+5. **Deploy to Kubernetes**:
+   ```bash
+   kubectl apply -k k8s/
+   ```
+
+6. **Verify deployment**:
+   ```bash
+   kubectl get pods
+   kubectl get services
+   ```
+
+7. **Access the API**:
+   ```bash
+   kubectl port-forward service/controller 8000:8000
+   ```
+
+   The API will be available at `http://localhost:8000`
+
+### Cleaning Up
+
+```bash
+# Delete deployments
+kubectl delete deployment worker-deployment controller-deployment
+
+# Delete everything
+kubectl delete all --all
+
+# Stop Minikube
+minikube stop
+
+# Delete Minikube
+minikube delete
 ```
