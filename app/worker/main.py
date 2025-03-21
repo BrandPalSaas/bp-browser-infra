@@ -3,21 +3,14 @@
 Browser Worker Main Entry Point
 """
 import asyncio
-import os
 import signal
 from browser_worker import BrowserWorker
+from app.common.task_manager import TaskManager
 
 from dotenv import load_dotenv
 load_dotenv()
 
 import structlog
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.JSONRenderer()
-    ]
-)
-
 log = structlog.get_logger(__name__)
 
 async def main():
