@@ -4,10 +4,12 @@ import json
 import asyncio
 import structlog
 import socket
+import uuid
 from langchain_openai import ChatOpenAI
 
 from app.common.models import BrowserTaskStatus, TaskEntry, RawResponse
 from app.common.task_manager import TaskManager
+from app.worker.constants import TASK_RESULTS_DIR
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -18,7 +20,7 @@ class BrowserWorker:
         self.browser = None
         self.ready = False
         self.running = True
-        self.consumer_name = f"worker-{socket.gethostname()}-{os.getpid()}"
+        self.consumer_name = f"worker-{socket.gethostname()}-{uuid.uuid4().hex}"
         
         # Task manager for Redis interactions
         self.task_manager = TaskManager()
@@ -30,7 +32,7 @@ class BrowserWorker:
             return False
         
         try:
-            log.info("Initializing browser")
+            log.info("Initializing browser", name=self.consumer_name)
             self.browser = Browser(config=BrowserConfig(headless=False, disable_security=True))
             self.ready = True
             log.info("Browser initialized and ready")
@@ -43,17 +45,28 @@ class BrowserWorker:
         
         task_id = entry.task_id
         log_ctx = log.bind(task_id=task_id)
+        gif_path = f"{TASK_RESULTS_DIR}/{task_id}.gif"
+
         try:
             log_ctx.info("Processing task", entry=entry)
             
+            # Ensure results directory exists
+            if not os.path.exists(TASK_RESULTS_DIR):
+                os.makedirs(TASK_RESULTS_DIR)
+            
             # Update status to running
-            await self.task_manager.update_task_result(task_id, BrowserTaskStatus.RUNNING)
+            await self.task_manager.update_task_result(
+                task_id, 
+                BrowserTaskStatus.RUNNING,
+                worker_name=self.consumer_name
+            )
             
             # Initialize the BrowserUse Agent
             agent = Agent(
                 browser=self.browser,
                 task=entry.request.task_description,
-                llm=ChatOpenAI(model="gpt-4o")
+                llm=ChatOpenAI(model="gpt-4o"),
+                generate_gif=gif_path
             )
             
             # Process the task
@@ -69,13 +82,28 @@ class BrowserWorker:
             log_ctx.info("Task completed successfully", result=raw_response)
             
             # Update task result
-            await self.task_manager.update_task_result(task_id, BrowserTaskStatus.COMPLETED, response=json.dumps(raw_response.model_dump()))
+            await self.task_manager.update_task_result(
+                task_id, 
+                BrowserTaskStatus.COMPLETED, 
+                response=json.dumps(raw_response.model_dump()),
+                worker_name=self.consumer_name
+            )
             return True
         
         except Exception as e:
             log_ctx.exception("Error processing task", error=str(e), exc_info=True)
-            await self.task_manager.update_task_result(task_id, BrowserTaskStatus.FAILED, exception=str(e))
+            await self.task_manager.update_task_result(
+                task_id, 
+                BrowserTaskStatus.FAILED, 
+                exception=str(e),
+                worker_name=self.consumer_name
+            )
             return False
+        finally:
+            if os.path.exists(gif_path):
+                log_ctx.info("TODO: Uploading gif files", gif_path=gif_path)
+                # TODO: upload gif to s3
+                # os.remove(gif_path)
 
     async def read_tasks(self):
         """Read tasks from Redis stream and process them."""

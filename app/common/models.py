@@ -22,6 +22,7 @@ class BrowserTaskResponse(BaseModel):
     """Model for a task execution response."""
     task_id: str
     task_status: BrowserTaskStatus
+    worker_name: Optional[str] = None
     task_response: Optional[str] = None
 
 class RawResponse(BaseModel):

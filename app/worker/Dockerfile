@@ -42,6 +42,9 @@ COPY app /brandpal/app
 # Install Playwright browsers
 RUN playwright install chromium
 
+# Create results directories
+RUN mkdir -p /tmp/task_results && chmod 777 /tmp/task_results
+
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/brandpal

@@ -259,7 +259,7 @@ class TaskManager:
         except Exception as e:
             log.exception("Error acknowledging task", error=str(e), exc_info=True, message_id=message_id)
     
-    async def update_task_result(self, task_id: str, status: BrowserTaskStatus, response=None, exception=None) -> bool:
+    async def update_task_result(self, task_id: str, status: BrowserTaskStatus, response=None, exception=None, worker_name=None) -> bool:
         """
         Update the result of a task in Redis.
         
@@ -268,6 +268,7 @@ class TaskManager:
             status: The new status (completed, failed, etc.)
             response: The task response (if any)
             exception: Exception info (if failed)
+            worker_name: The name of the worker processing the task
         """
         try:
             if not await self.ensure_redis_connection():
@@ -291,9 +292,12 @@ class TaskManager:
             if exception:
                 entry.response.task_response = f"Error: {str(exception)}"
                 
+            if worker_name:
+                entry.response.worker_name = worker_name
+                
             # Save the updated entry
             await self.redis.set(result_key, json.dumps(entry.model_dump()), ex=36000)
-            log.info("Updated task result", task_id=task_id, status=status, entry=entry)
+            log.info("Updated task result", task_id=task_id, status=status, worker_name=worker_name)
             
             return True
         except Exception as e:
