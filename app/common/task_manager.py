@@ -7,7 +7,7 @@ import asyncio
 from datetime import datetime
 
 from app.common.models import BrowserTaskRequest, BrowserTaskStatus, BrowserTaskResponse, TaskEntry
-
+from app.common.constants import BROWSER_TASKS_STREAM, TASK_RESULTS_KEY_SUFFIX, REDIS_RESULT_EXPIRATION_SECONDS
 log = structlog.get_logger(__name__)
 
 class TaskManager:
@@ -18,9 +18,8 @@ class TaskManager:
         self.redis_password = os.getenv("REDIS_PASSWORD", "")
         self.redis_db = int(os.getenv("REDIS_DB", 0))
         self.redis_ssl = os.getenv("REDIS_SSL", "false").lower() == "true"
-        self.task_stream = "browser_tasks"
-
-        self.results_key_suffix = "result"
+        self.task_stream = BROWSER_TASKS_STREAM
+        self.results_key_suffix = TASK_RESULTS_KEY_SUFFIX
         self.group_name = "browser_workers"
         self.redis = None
         
@@ -237,7 +236,7 @@ class TaskManager:
                                 entry = TaskEntry(**json.loads(result_json))
                                 entry.response.task_status = BrowserTaskStatus.RUNNING
                                 entry.start_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                await self.redis.set(result_key, json.dumps(entry.model_dump()), ex=36000)
+                                await self.redis.set(result_key, json.dumps(entry.model_dump()), ex=REDIS_RESULT_EXPIRATION_SECONDS)
 
                                 return resolved_message_id, entry
                             except Exception as e:
@@ -300,8 +299,11 @@ class TaskManager:
             if worker_name:
                 entry.response.worker_name = worker_name
                 
+            if status == BrowserTaskStatus.COMPLETED or status == BrowserTaskStatus.FAILED:
+                entry.end_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
             # Save the updated entry
-            await self.redis.set(result_key, json.dumps(entry.model_dump()), ex=36000)
+            await self.redis.set(result_key, json.dumps(entry.model_dump()), ex=REDIS_RESULT_EXPIRATION_SECONDS)
             log.info("Updated task result", task_id=task_id, status=status, worker_name=worker_name)
             
             return True

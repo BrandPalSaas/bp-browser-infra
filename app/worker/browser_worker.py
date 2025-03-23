@@ -9,7 +9,7 @@ from langchain_openai import ChatOpenAI
 
 from app.common.models import BrowserTaskStatus, TaskEntry, RawResponse
 from app.common.task_manager import TaskManager
-from app.worker.constants import TASK_RESULTS_DIR
+from app.common.constants import TASK_RESULTS_DIR
 from dotenv import load_dotenv
 load_dotenv()
 
