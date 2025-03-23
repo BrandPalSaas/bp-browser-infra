@@ -19,7 +19,8 @@ class TaskManager:
         self.redis_db = int(os.getenv("REDIS_DB", 0))
         self.redis_ssl = os.getenv("REDIS_SSL", "false").lower() == "true"
         self.task_stream = "browser_tasks"
-        self.results_key_prefix = "task_result_"
+
+        self.results_key_suffix = "result"
         self.group_name = "browser_workers"
         self.redis = None
         
@@ -72,6 +73,9 @@ class TaskManager:
                 return False
         return True
 
+    def get_task_result_key(self, task_id: str) -> str:
+        return f"{task_id}_{self.results_key_suffix}"
+
     async def submit_task(self, task_data: BrowserTaskRequest) -> BrowserTaskResponse:
         """
         Submit a task to the Redis queue.
@@ -82,7 +86,8 @@ class TaskManager:
         Returns:
             A dictionary with task_id and status
         """
-        task_id = f"task-{uuid.uuid4().hex}"
+        # Create a task_id with mmddhhmmss and uuid suffix
+        task_id = f"task-{datetime.now().strftime("%m%d-%H%M")}-{uuid.uuid4().hex[:8]}"
         log_ctx = log.bind(task_id=task_id)
         
         try:
@@ -94,7 +99,7 @@ class TaskManager:
             redis_task = {'task_id': task_id }
             
             # Initialize the task result in Redis with pending status
-            result_key = f"{self.results_key_prefix}{task_id}"
+            result_key = self.get_task_result_key(task_id)
             initial_result = BrowserTaskResponse(task_id=task_id, task_status=BrowserTaskStatus.WAITING)
             entry = TaskEntry(
                 task_id=task_id,
@@ -131,7 +136,7 @@ class TaskManager:
             The task result or an error response
         """
         log_ctx = log.bind(task_id=task_id)
-        result_key = f"{self.results_key_prefix}{task_id}"
+        result_key = self.get_task_result_key(task_id)
         
         try:
             # Check Redis connection
@@ -223,7 +228,7 @@ class TaskManager:
                     # Get the task details from Redis
                     task_id = task_data.get('task_id')
                     if task_id:
-                        result_key = f"{self.results_key_prefix}{task_id}"
+                        result_key = self.get_task_result_key(task_id)
                         result_json = await self.redis.get(result_key)
                         
                         if result_json:
@@ -275,7 +280,7 @@ class TaskManager:
                 return False
                 
             # Get the current entry
-            result_key = f"{self.results_key_prefix}{task_id}"
+            result_key = self.get_task_result_key(task_id)
             result_json = await self.redis.get(result_key)
             
             if not result_json:
