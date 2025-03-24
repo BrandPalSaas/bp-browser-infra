@@ -109,7 +109,7 @@ async def main():
     try:
         # Initialize service
         if await service.initialize():
-            log.info("Worker service initialized and running")
+            log.info(f"Worker service initialized and running: ******{service.worker.consumer_name}*****")
             
             # Simply wait for all tasks to complete instead of polling
             # This will be interrupted by task cancellation from signal handler

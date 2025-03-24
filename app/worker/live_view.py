@@ -27,7 +27,7 @@ class LiveViewManager:
     """Manages the live view capabilities for the browser worker."""
     
     def __init__(self):
-        self.viewer_connections = set()
+        self.viewer_connections: set[WebSocket] = set()
         self.active_controller = None
         self.last_screenshot = None
         self.screenshot_interval = 0.5
@@ -44,6 +44,14 @@ class LiveViewManager:
             return True
         return False
     
+    def get_playwright_browser_page(self):
+        if self.browser and self.browser.playwright_browser:
+            playwright_browser = self.browser.playwright_browser
+            contexts = playwright_browser.contexts
+            if contexts and len(contexts) > 0 and len(contexts[0].pages) > 0:
+                return contexts[0].pages[0]
+
+    
     async def capture_screenshots(self):
         """Continuously capture screenshots for live view."""
         log.info("Starting screenshot capture loop")
@@ -55,14 +63,15 @@ class LiveViewManager:
                 
             try:
                 # Only capture if viewers are connected
-                if self.browser and self.browser.page:
-                    screenshot = await self.browser.playwright_browser.page.screenshot(full_page=False, type="jpeg", quality=70)
+                current_page = self.get_playwright_browser_page()
+                if current_page:
+                    screenshot = await current_page.screenshot(full_page=False, type="jpeg", quality=70)
                     # Store the screenshot in memory
                     self.last_screenshot = screenshot
                     
                     # Send the screenshot to all connected viewers
                     if self.viewer_connections and screenshot:
-                        log.debug(f"Sending screenshot to {len(self.viewer_connections)} viewers")
+                        log.info(f"Sending screenshot to {len(self.viewer_connections)} viewers")
                         websocket_tasks = []
                         for websocket in self.viewer_connections:
                             websocket_tasks.append(websocket.send_bytes(screenshot))
@@ -82,8 +91,10 @@ class LiveViewManager:
                 log.warning("Command rejected - websocket is not the active controller")
                 return False
                 
-            if not self.browser or not self.browser.page:
-                log.warning("Browser not available for command")
+            # Get the current page using our helper method
+            current_page = self.get_playwright_browser_page()
+            if not self.browser or not current_page:
+                log.warning("Browser or page not available for command")
                 return False
                 
             command = command_data.get("type")
@@ -92,26 +103,20 @@ class LiveViewManager:
                 x = command_data.get("x")
                 y = command_data.get("y")
                 if x is not None and y is not None:
-                    await self.browser.page.mouse.click(x, y)
+                    await current_page.mouse.click(x, y)
                     log.debug(f"Mouse click at {x}, {y}")
                     
             elif command == "type":
                 text = command_data.get("text")
                 if text:
-                    await self.browser.page.keyboard.type(text)
+                    await current_page.keyboard.type(text)
                     log.debug(f"Keyboard type: {text}")
                     
             elif command == "key":
                 key = command_data.get("key")
                 if key:
-                    await self.browser.page.keyboard.press(key)
+                    await current_page.keyboard.press(key)
                     log.debug(f"Key press: {key}")
-                    
-            elif command == "navigate":
-                url = command_data.get("url")
-                if url:
-                    await self.browser.page.goto(url)
-                    log.debug(f"Navigate to: {url}")
                     
             return True
         except Exception as e:
@@ -199,8 +204,9 @@ def setup_routes(app: FastAPI, live_view_manager: LiveViewManager, worker_name: 
     @app.get("/live/{worker_id}", response_class=HTMLResponse)
     async def get_live_view(request: Request, worker_id: str):
         """Serve the live view HTML page."""
-        if worker_id != worker_name:
-            return HTMLResponse(f"Worker {worker_id} not found", status_code=404)
+        # Allow any worker ID as long as we have a browser
+        if not live_view_manager.browser:
+            return HTMLResponse("Browser not ready", status_code=503)
         
         return templates.TemplateResponse(
             "live_view.html", 
@@ -210,12 +216,12 @@ def setup_routes(app: FastAPI, live_view_manager: LiveViewManager, worker_name: 
     @app.websocket("/ws/live/{worker_id}")
     async def websocket_live_view(websocket: WebSocket, worker_id: str):
         """WebSocket endpoint for live view."""
-        if worker_id != worker_name:
-            await websocket.close(code=1008, reason=f"Worker {worker_id} not found")
-            return
+        # Allow any worker ID as the worker instance is global
+        # but log the attempted worker_id for debugging
+        log.info(f"WebSocket connection requested for worker", requested_id=worker_id, actual_id=worker_name)
         
         await websocket.accept()
-        log.info(f"WebSocket connection established", worker_id=worker_id)
+        log.info("WebSocket connection established")
         
         # Add this connection to the manager's set of connections
         await live_view_manager.add_viewer(websocket)

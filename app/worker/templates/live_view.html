@@ -143,11 +143,9 @@
         </div>
         <div id="control-elements">
             <div class="control-panel">
-                <input type="text" id="urlBar" class="url-bar" placeholder="Enter URL">
-                <button id="goButton" class="go-button">Go</button>
+                <div class="status" id="status">Ready...</div>
             </div>
         </div>
-        <div class="status" id="status">Ready...</div>
     </div>
 
     <script>
@@ -283,39 +281,6 @@
             socket.send(JSON.stringify(clickCommand));
             updateStatus(`Click at ${Math.round(x)}, ${Math.round(y)}`);
         });
-
-        // URL navigation
-        document.getElementById('goButton').addEventListener('click', function() {
-            if (hasControl) navigateToUrl();
-        });
-        
-        document.getElementById('urlBar').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter' && hasControl) {
-                navigateToUrl();
-            }
-        });
-        
-        function navigateToUrl() {
-            if (!socket || socket.readyState !== WebSocket.OPEN || !hasControl) return;
-            
-            const url = document.getElementById('urlBar').value.trim();
-            if (!url) return;
-            
-            // Add http:// prefix if not present
-            let fullUrl = url;
-            if (!url.startsWith('http://') && !url.startsWith('https://')) {
-                fullUrl = 'https://' + url;
-            }
-            
-            const navCommand = {
-                type: 'navigate',
-                url: fullUrl,
-                id: Date.now()
-            };
-            
-            socket.send(JSON.stringify(navCommand));
-            updateStatus(`Navigating to ${fullUrl}`);
-        }
 
         // Keyboard input handling
         document.addEventListener('keydown', function(e) {
