@@ -33,9 +33,6 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install worker-specific packages
-RUN pip install playwright==1.51.0 browser-use==0.1.40
-
 # Copy the entire app directory
 COPY app /brandpal/app
 
@@ -48,10 +45,11 @@ RUN mkdir -p /tmp/task_results && chmod 777 /tmp/task_results
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/brandpal
-ENV HEALTH_PORT=3000
 ENV DISPLAY=:99
+ENV LIVE_VIEW_PORT=3000
+ENV ANONYMIZED_TELEMETRY=False
 
-# Expose health check port
+# Expose live view port
 EXPOSE 3000
 
 # Run Xvfb and the worker process

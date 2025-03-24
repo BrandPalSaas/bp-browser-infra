@@ -108,7 +108,7 @@ class TaskManager:
             )
             
             # Store the initial result
-            await self.redis.set(result_key, json.dumps(entry.model_dump()), ex=36000)  # 10 hour expiry
+            await self.redis.set(result_key, json.dumps(entry.model_dump()), ex=REDIS_RESULT_EXPIRATION_SECONDS)
             
             # Add to task stream
             log_ctx.info("Adding task to Redis stream", task_id=task_id, task_data=task_data)

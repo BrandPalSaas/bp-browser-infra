@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Browser Worker Live View</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            background-color: #f0f0f0;
+        }
+        .container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 10px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .status-panel {
+            display: flex;
+            align-items: center;
+        }
+        .browser-view {
+            position: relative;
+            flex: 1;
+            background-color: #fff;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+        .browser-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        .control-panel {
+            display: flex;
+            flex-direction: row;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+        }
+        .url-bar {
+            flex: 1;
+            padding: 8px;
+            border-radius: 3px;
+            border: 1px solid #ccc;
+            margin-right: 10px;
+        }
+        .go-button {
+            padding: 8px 15px;
+            background-color: #0078d7;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .status {
+            padding: 5px;
+            background-color: #e7e7e7;
+            border-radius: 3px;
+            margin-top: 10px;
+            font-size: 12px;
+        }
+        .connection-status {
+            margin-left: 10px;
+            font-size: 14px;
+        }
+        .connected {
+            color: green;
+        }
+        .disconnected {
+            color: red;
+        }
+        .no-control {
+            color: orange;
+        }
+        .has-control {
+            color: green;
+        }
+        .control-btn {
+            margin-left: 10px;
+            padding: 5px 10px;
+            background-color: #0078d7;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .controls-disabled {
+            pointer-events: none;
+            opacity: 0.6;
+        }
+        .view-only-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: rgba(0,0,0,0.1);
+            z-index: 10;
+            pointer-events: none;
+        }
+        .view-only-message {
+            background-color: rgba(255,255,255,0.9);
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>Browser Worker Live View <span id="worker-name"></span></h2>
+            <div class="status-panel">
+                <span class="connection-status disconnected" id="connection-status">Disconnected</span>
+                <span class="connection-status no-control" id="control-status">No Control</span>
+                <button id="request-control-btn" class="control-btn">Request Control</button>
+            </div>
+        </div>
+        <div class="browser-view">
+            <img id="browserScreen" class="browser-screen" src="" alt="Browser Screen">
+            <div id="view-only-overlay" class="view-only-overlay">
+                <div class="view-only-message">VIEW ONLY MODE</div>
+            </div>
+        </div>
+        <div id="control-elements">
+            <div class="control-panel">
+                <input type="text" id="urlBar" class="url-bar" placeholder="Enter URL">
+                <button id="goButton" class="go-button">Go</button>
+            </div>
+        </div>
+        <div class="status" id="status">Ready...</div>
+    </div>
+
+    <script>
+        const workerName = "{{worker_name}}";
+        document.getElementById('worker-name').textContent = workerName;
+        
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${wsProtocol}//${window.location.host}/ws/live/${workerName}`;
+        
+        let socket;
+        let hasControl = false;
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
+        const reconnectDelay = 2000;
+
+        // Update UI based on control status
+        function updateControlUI(hasControl) {
+            const controlStatus = document.getElementById('control-status');
+            const viewOnlyOverlay = document.getElementById('view-only-overlay');
+            const controlElements = document.getElementById('control-elements');
+            
+            if (hasControl) {
+                controlStatus.textContent = 'Has Control';
+                controlStatus.classList.remove('no-control');
+                controlStatus.classList.add('has-control');
+                viewOnlyOverlay.style.display = 'none';
+                controlElements.classList.remove('controls-disabled');
+                document.getElementById('request-control-btn').style.display = 'none';
+            } else {
+                controlStatus.textContent = 'View Only';
+                controlStatus.classList.remove('has-control');
+                controlStatus.classList.add('no-control');
+                viewOnlyOverlay.style.display = 'flex';
+                controlElements.classList.add('controls-disabled');
+                document.getElementById('request-control-btn').style.display = 'inline-block';
+            }
+        }
+
+        function connectWebSocket() {
+            updateStatus('Connecting to worker...');
+            
+            socket = new WebSocket(wsUrl);
+            
+            socket.onopen = function(e) {
+                document.getElementById('connection-status').textContent = 'Connected';
+                document.getElementById('connection-status').classList.remove('disconnected');
+                document.getElementById('connection-status').classList.add('connected');
+                updateStatus('Connected to worker');
+                reconnectAttempts = 0;
+            };
+            
+            socket.onmessage = function(event) {
+                // Check if it's a JSON message (control status update)
+                if (typeof event.data === 'string') {
+                    try {
+                        const message = JSON.parse(event.data);
+                        if (message.type === 'control_status') {
+                            hasControl = message.has_control;
+                            updateControlUI(hasControl);
+                            updateStatus(hasControl ? 'You have control' : 'View only mode');
+                        }
+                    } catch (e) {
+                        console.error('Failed to parse message:', e);
+                    }
+                    return;
+                }
+                
+                // Handle binary data (screenshots)
+                const browserScreen = document.getElementById('browserScreen');
+                const blob = event.data;
+                
+                // Convert the received binary data to an object URL
+                browserScreen.src = URL.createObjectURL(blob);
+            };
+            
+            socket.onclose = function(event) {
+                document.getElementById('connection-status').textContent = 'Disconnected';
+                document.getElementById('connection-status').classList.remove('connected');
+                document.getElementById('connection-status').classList.add('disconnected');
+                
+                // Reset control status
+                hasControl = false;
+                updateControlUI(hasControl);
+                
+                if (reconnectAttempts < maxReconnectAttempts) {
+                    updateStatus(`Connection closed. Reconnecting in ${reconnectDelay/1000} seconds...`);
+                    setTimeout(connectWebSocket, reconnectDelay);
+                    reconnectAttempts++;
+                } else {
+                    updateStatus('Connection closed. Max reconnect attempts reached.');
+                }
+            };
+            
+            socket.onerror = function(error) {
+                updateStatus('WebSocket error: ' + error.message);
+            };
+        }
+
+        // Initialize the request control button
+        document.getElementById('request-control-btn').addEventListener('click', function() {
+            if (!socket || socket.readyState !== WebSocket.OPEN) return;
+            
+            socket.send(JSON.stringify({
+                type: 'request_control'
+            }));
+            
+            updateStatus('Requesting control...');
+        });
+
+        function updateStatus(message) {
+            document.getElementById('status').textContent = message;
+        }
+
+        // Browser screen interaction
+        const browserScreen = document.getElementById('browserScreen');
+        browserScreen.addEventListener('click', function(e) {
+            if (!socket || socket.readyState !== WebSocket.OPEN || !hasControl) return;
+            
+            const rect = browserScreen.getBoundingClientRect();
+            const scaleX = browserScreen.naturalWidth / browserScreen.clientWidth;
+            const scaleY = browserScreen.naturalHeight / browserScreen.clientHeight;
+            
+            const x = (e.clientX - rect.left) * scaleX;
+            const y = (e.clientY - rect.top) * scaleY;
+            
+            const clickCommand = {
+                type: 'click',
+                x: Math.round(x),
+                y: Math.round(y),
+                id: Date.now()  // Add an ID to track command responses
+            };
+            
+            socket.send(JSON.stringify(clickCommand));
+            updateStatus(`Click at ${Math.round(x)}, ${Math.round(y)}`);
+        });
+
+        // URL navigation
+        document.getElementById('goButton').addEventListener('click', function() {
+            if (hasControl) navigateToUrl();
+        });
+        
+        document.getElementById('urlBar').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && hasControl) {
+                navigateToUrl();
+            }
+        });
+        
+        function navigateToUrl() {
+            if (!socket || socket.readyState !== WebSocket.OPEN || !hasControl) return;
+            
+            const url = document.getElementById('urlBar').value.trim();
+            if (!url) return;
+            
+            // Add http:// prefix if not present
+            let fullUrl = url;
+            if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                fullUrl = 'https://' + url;
+            }
+            
+            const navCommand = {
+                type: 'navigate',
+                url: fullUrl,
+                id: Date.now()
+            };
+            
+            socket.send(JSON.stringify(navCommand));
+            updateStatus(`Navigating to ${fullUrl}`);
+        }
+
+        // Keyboard input handling
+        document.addEventListener('keydown', function(e) {
+            // Only process key events when browser view is focused and user has control
+            if (!hasControl || document.activeElement === document.getElementById('urlBar')) {
+                return;
+            }
+            
+            if (!socket || socket.readyState !== WebSocket.OPEN) return;
+            
+            // Map common special keys
+            const specialKeys = {
+                'Backspace': 'Backspace',
+                'Tab': 'Tab',
+                'Enter': 'Enter',
+                'Shift': 'Shift',
+                'Control': 'Control',
+                'Alt': 'Alt',
+                'Escape': 'Escape',
+                'ArrowLeft': 'ArrowLeft',
+                'ArrowRight': 'ArrowRight',
+                'ArrowUp': 'ArrowUp',
+                'ArrowDown': 'ArrowDown'
+            };
+            
+            if (specialKeys[e.key]) {
+                const keyCommand = {
+                    type: 'key',
+                    key: specialKeys[e.key],
+                    id: Date.now()
+                };
+                socket.send(JSON.stringify(keyCommand));
+                updateStatus(`Key press: ${specialKeys[e.key]}`);
+                e.preventDefault();
+            } else if (e.key.length === 1) {
+                // For regular text input
+                const typeCommand = {
+                    type: 'type',
+                    text: e.key,
+                    id: Date.now()
+                };
+                socket.send(JSON.stringify(typeCommand));
+                updateStatus(`Type: ${e.key}`);
+            }
+        });
+
+        // Initialize connection and UI
+        updateControlUI(false);
+        connectWebSocket();
+    </script>
+</body>
+</html> 

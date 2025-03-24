@@ -4,6 +4,8 @@
 export PYTHONPATH=$(pwd)
 export API_PORT=8000
 
+source venv/bin/activate
+
 echo "API will be available at http://localhost:$API_PORT"
 
 # Navigate to controller directory and run

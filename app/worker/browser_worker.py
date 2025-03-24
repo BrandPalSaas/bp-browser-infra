@@ -20,7 +20,7 @@ class BrowserWorker:
         self.browser = None
         self.ready = False
         self.running = True
-        self.consumer_name = f"worker-{socket.gethostname()}-{uuid.uuid4().hex}"
+        self.consumer_name = f"worker-{socket.gethostname()}-{uuid.uuid4().hex[:8]}"
         
         # Task manager for Redis interactions
         self.task_manager = TaskManager()
@@ -40,6 +40,9 @@ class BrowserWorker:
         except Exception as e:
             log.error("Failed to initialize browser", error=str(e), exc_info=True)
             return False
+    
+    def get_browser(self) -> Browser:
+        return self.browser
     
     async def process_task(self, entry: TaskEntry) -> bool:
         
@@ -137,7 +140,6 @@ class BrowserWorker:
             except Exception as e:
                 log_ctx.exception("Error in read_tasks loop", error=str(e), exc_info=True)
                 await asyncio.sleep(1)  # Avoid tight loop on persistent errors
-
     
     async def shutdown(self):
         """Cleanup and shutdown the worker."""

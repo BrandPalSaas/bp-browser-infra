@@ -17,15 +17,16 @@ spec:
       containers:
       - name: worker
         image: browser-worker:latest
-        imagePullPolicy: Never
+        imagePullPolicy: IfNotPresent
         env:
-        - name: HEALTH_PORT
+        - name: LIVE_VIEW_PORT
           value: "3000"
         envFrom:
         - configMapRef:
             name: browser-infra-config
         ports:
         - containerPort: 3000
+          name: live-view
         resources:
           limits:
             cpu: "1"
