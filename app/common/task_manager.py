@@ -5,10 +5,14 @@ import redis.asyncio as redis
 import structlog
 import asyncio
 from datetime import datetime
+from typing import Callable, Dict, Optional, Union, Any, List, Set
 
 from app.common.models import BrowserTaskRequest, BrowserTaskStatus, BrowserTaskResponse, TaskEntry
 from app.common.constants import BROWSER_TASKS_STREAM, TASK_RESULTS_KEY_SUFFIX, REDIS_RESULT_EXPIRATION_SECONDS
 log = structlog.get_logger(__name__)
+
+# Define a callback type for task status listeners (task_id, status, response)
+TaskStatusCallback = Callable[[str, BrowserTaskStatus, str], None]
 
 class TaskManager:
     def __init__(self):
@@ -23,6 +27,43 @@ class TaskManager:
         self.group_name = "browser_workers"
         self.redis = None
         
+        # Task status listeners
+        self.status_listeners: Set[TaskStatusCallback] = set()
+    
+    def add_status_listener(self, callback: TaskStatusCallback) -> None:
+        """Register a callback to receive task status updates.
+        
+        Args:
+            callback: A function that will be called when task status changes
+                with parameters (task_id, status, result_data)
+        """
+        self.status_listeners.add(callback)
+        log.info("Task status listener registered")
+    
+    def remove_status_listener(self, callback: TaskStatusCallback) -> None:
+        """Remove a previously registered callback.
+        
+        Args:
+            callback: The callback function to remove
+        """
+        if callback in self.status_listeners:
+            self.status_listeners.remove(callback)
+            log.info("Task status listener removed")
+    
+    def _notify_listeners(self, task_id: str, status: BrowserTaskStatus, result_data: str = None) -> None:
+        """Notify all registered listeners about a task status change.
+        
+        Args:
+            task_id: The ID of the task
+            status: The status of the task (BrowserTaskStatus enum)
+            result_data: The task result data for completed/failed tasks
+        """
+        for listener in self.status_listeners:
+            try:
+                listener(task_id, status, result_data)
+            except Exception as e:
+                log.error(f"Error in task status listener", error=str(e), exc_info=True)
+
     async def initialize(self):
         """Initialize the task manager asynchronously."""
         # Connect to Redis
@@ -303,12 +344,21 @@ class TaskManager:
                 entry.end_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
             # Save the updated entry
-            await self.redis.set(result_key, json.dumps(entry.model_dump()), ex=REDIS_RESULT_EXPIRATION_SECONDS)
-            log.info("Updated task result", task_id=task_id, status=status, worker_name=worker_name)
+            await self.redis.set(
+                result_key, 
+                json.dumps(entry.model_dump()), 
+                ex=REDIS_RESULT_EXPIRATION_SECONDS
+            )
+            
+            # Notify status listeners
+            self._notify_listeners(task_id, status, entry.response.task_response)
             
             return True
         except Exception as e:
-            log.exception("Error updating task result", task_id=task_id, error=str(e), exc_info=True)
+            log.exception("Error updating task", 
+                        error=str(e), 
+                        exc_info=True, 
+                        task_id=task_id)
             return False
 
 # Function to provide TaskManager as a dependency

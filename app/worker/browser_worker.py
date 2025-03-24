@@ -4,8 +4,11 @@ import json
 import asyncio
 import structlog
 import socket
-import uuid
 from langchain_openai import ChatOpenAI
+import random
+import string
+import traceback
+from typing import Optional
 
 from app.common.models import BrowserTaskStatus, TaskEntry, RawResponse
 from app.common.task_manager import TaskManager
@@ -16,17 +19,23 @@ load_dotenv()
 log = structlog.get_logger(__name__)
 
 class BrowserWorker:
+    """The browser worker processes tasks from Redis."""
+    
     def __init__(self):
+        """Initialize the worker."""
         self.browser = None
+        self.task_manager = TaskManager()
         self.ready = False
         self.running = True
-        self.consumer_name = f"worker-{socket.gethostname()}-{uuid.uuid4().hex[:8]}"
         
-        # Task manager for Redis interactions
-        self.task_manager = TaskManager()
-    
+        # Generate a unique consumer name for this worker
+        hostname = socket.gethostname()
+        random_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+        self.consumer_name = f"worker-{hostname}-{random_id}"
+
     async def initialize(self):
-        """Initialize the worker with a browser instance and Redis connection."""
+        """Initialize the worker and connect to Redis."""
+        # Initialize task manager
         if not await self.task_manager.initialize():
             log.error("Failed to connect to Redis. Exiting.")
             return False
@@ -91,16 +100,24 @@ class BrowserWorker:
                 response=json.dumps(raw_response.model_dump()),
                 worker_name=self.consumer_name
             )
+                
             return True
         
         except Exception as e:
             log_ctx.exception("Error processing task", error=str(e), exc_info=True)
+            
+            error_response = {
+                "error": str(e),
+                "stacktrace": traceback.format_exc()
+            }
+            
             await self.task_manager.update_task_result(
                 task_id, 
                 BrowserTaskStatus.FAILED, 
-                exception=str(e),
+                response=json.dumps(error_response),
                 worker_name=self.consumer_name
             )
+                
             return False
         finally:
             if os.path.exists(gif_path):

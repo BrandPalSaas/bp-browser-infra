@@ -6,8 +6,11 @@ import os
 import asyncio
 import signal
 import sys
+from typing import Optional, Union, Dict, Any
 from browser_worker import BrowserWorker
-from live_view import LiveViewManager, start_live_view_server, UvicornServer
+from live_view import LiveViewManager, start_live_view_server
+from app.common.task_manager import TaskStatusCallback
+from app.common.models import BrowserTaskStatus
 from dotenv import load_dotenv
 
 import structlog
@@ -43,6 +46,9 @@ class WorkerService:
             if self.live_view_manager.initialize(self.worker.get_browser()):
                 log.info("Live view manager initialized successfully")
                 
+                # Use a true anonymous function to connect task updates directly to the live view manager
+                self.worker.task_manager.add_status_listener(self.live_view_manager.update_task_info)
+                
                 # Start live view server
                 live_view_port = int(os.getenv("LIVE_VIEW_PORT", 3000))
                 log.info(f"Starting live view server on port {live_view_port}")
@@ -72,6 +78,9 @@ class WorkerService:
             
         self.running = False
         log.info("Shutting down services...")
+        
+        # We're using true anonymous functions now, so no need to unregister
+        # The listeners will be garbage collected when task_manager is destroyed
         
         # Cancel all tasks
         for task in self.tasks:

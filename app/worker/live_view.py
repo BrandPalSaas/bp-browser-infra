@@ -4,11 +4,13 @@ import asyncio
 import structlog
 import pathlib
 import uvicorn
+from typing import Optional, Union, Dict, Any, Set
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from browser_use import Browser
+from app.common.models import BrowserTaskStatus
 log = structlog.get_logger(__name__)
 
 # Create FastAPI app for the live view
@@ -27,15 +29,17 @@ class LiveViewManager:
     """Manages the live view capabilities for the browser worker."""
     
     def __init__(self):
-        self.viewer_connections: set[WebSocket] = set()
-        self.active_controller = None
-        self.last_screenshot = None
-        self.screenshot_interval = 0.5
-        self.browser = None
-        self.screenshot_task = None
-        self.running = True
+        self.viewer_connections: Set[WebSocket] = set()
+        self.active_controller: Optional[WebSocket] = None
+        self.last_screenshot: Optional[bytes] = None
+        self.screenshot_interval: float = 1.0
+        self.browser: Optional[Browser] = None
+        self.screenshot_task: Optional[asyncio.Task] = None
+        self.running: bool = True
+        self.current_task_id: Optional[str] = None
+
     
-    def initialize(self, browser: Browser):
+    def initialize(self, browser: Browser) -> bool:
         """Initialize the live view manager with a browser instance."""
         self.browser = browser
         if self.browser:
@@ -43,6 +47,26 @@ class LiveViewManager:
             log.info("Live view manager initialized")
             return True
         return False
+    
+    def update_task_info(self, task_id: str, status: BrowserTaskStatus, result: str = None) -> None:
+        # Notify viewers of the task update
+        if self.viewer_connections:
+            task_info = {
+                "type": "task_update",
+                "task_id": task_id,
+                "task_result": f"Status:{status.value}, Result: {result}"
+            }
+            # Create a task to send the update to all viewers
+            asyncio.create_task(self.broadcast_task_info(task_info))
+            
+    async def broadcast_task_info(self, task_info):
+        """Broadcast task information to all connected viewers."""
+        websocket_tasks = []
+        for websocket in self.viewer_connections:
+            websocket_tasks.append(websocket.send_json(task_info))
+        
+        if websocket_tasks:
+            await asyncio.gather(*websocket_tasks, return_exceptions=True)
     
     def get_playwright_browser_page(self):
         if self.browser and self.browser.playwright_browser:
@@ -65,7 +89,7 @@ class LiveViewManager:
                 # Only capture if viewers are connected
                 current_page = self.get_playwright_browser_page()
                 if current_page:
-                    screenshot = await current_page.screenshot(full_page=False, type="jpeg", quality=70)
+                    screenshot = await current_page.screenshot(full_page=False, type="jpeg", quality=50)
                     # Store the screenshot in memory
                     self.last_screenshot = screenshot
                     
@@ -131,6 +155,14 @@ class LiveViewManager:
         # Send the initial screenshot if available
         if self.last_screenshot:
             await websocket.send_bytes(self.last_screenshot)
+            
+        # Send the current task information if available
+        if self.current_task_id:
+            await websocket.send_json({
+                "type": "task_update",
+                "task_id": self.current_task_id,
+                "task_result": self.task_result
+            })
     
     async def remove_viewer(self, websocket):
         """Remove a viewer connection."""
