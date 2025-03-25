@@ -130,7 +130,7 @@ class TaskManager:
             A dictionary with task_id and status
         """
         # Create a task_id with mmddhhmmss and uuid suffix
-        task_id = f"task-{datetime.now().strftime("%m%d-%H%M")}-{uuid.uuid4().hex[:8]}"
+        task_id = f'task-{datetime.now().strftime("%m%d-%H%M")}-{uuid.uuid4().hex[:8]}'
         log_ctx = log.bind(task_id=task_id)
         
         try:
