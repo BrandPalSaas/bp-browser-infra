@@ -10,3 +10,5 @@ data:
   REDIS_PASSWORD: "" # TODO: update password using the value in .env
   REDIS_DB: "200"     
   REDIS_SSL: "false"
+  # for worker to connect to controller
+  CONTROLLER_URL: "ws://controller.default.svc.cluster.local:8000/ws/worker"

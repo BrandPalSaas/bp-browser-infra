@@ -16,7 +16,7 @@ class LiveViewManager:
     """Manages the live view capabilities for the browser worker."""
     
     def __init__(self):
-        self.screenshot_interval: float = 0.5
+        self.screenshot_interval: float = 1.0
         self.running = True
 
         self.last_screenshot: Optional[bytes] = None
@@ -24,7 +24,7 @@ class LiveViewManager:
         self.websocket_task: Optional[asyncio.Task] = None
         self.controller_ws = None
 
-        self.controller_url = os.getenv("CONTROLLER_URL", "").strip()
+        self.controller_url = os.getenv("CONTROLLER_URL", "ws://localhost:8000/ws/worker").strip()
         self.controller_connected = False
         self.has_live_viewer = False
     
