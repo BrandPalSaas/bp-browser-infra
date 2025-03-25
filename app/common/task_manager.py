@@ -11,8 +11,8 @@ from app.common.models import BrowserTaskRequest, BrowserTaskStatus, BrowserTask
 from app.common.constants import BROWSER_TASKS_STREAM, TASK_RESULTS_KEY_SUFFIX, REDIS_RESULT_EXPIRATION_SECONDS
 log = structlog.get_logger(__name__)
 
-# Define a callback type for task status listeners (task_id, status, response)
-TaskStatusCallback = Callable[[str, BrowserTaskStatus, str], None]
+# Define a callback type for task status listeners (worker_id, task_id, status, response)
+TaskStatusCallback = Callable[[str, str, BrowserTaskStatus, str], None]
 
 # Singleton TaskManager, use get_task_manager() to get the TaskManager instance instead of TaskManager() directly 
 class TaskManager:
@@ -53,7 +53,7 @@ class TaskManager:
             self.status_listeners.remove(callback)
             log.info("Task status listener removed")
     
-    def _notify_listeners(self, task_id: str, status: BrowserTaskStatus, result_data: str = None) -> None:
+    def _notify_listeners(self, worker_id: str, task_id: str, status: BrowserTaskStatus, result_data: str = None) -> None:
         """Notify all registered listeners about a task status change.
         
         Args:
@@ -63,7 +63,7 @@ class TaskManager:
         """
         for listener in self.status_listeners:
             try:
-                listener(task_id, status, result_data)
+                listener(worker_id, task_id, status, result_data)
             except Exception as e:
                 log.error(f"Error in task status listener", error=str(e), exc_info=True)
 
@@ -307,7 +307,7 @@ class TaskManager:
         except Exception as e:
             log.exception("Error acknowledging task", error=str(e), exc_info=True, message_id=message_id)
     
-    async def update_task_result(self, task_id: str, status: BrowserTaskStatus, response=None, exception=None, worker_name=None) -> bool:
+    async def update_task_result(self, worker_id: str, task_id: str, status: BrowserTaskStatus, response=None, exception=None) -> bool:
         """
         Update the result of a task in Redis.
         
@@ -340,8 +340,7 @@ class TaskManager:
             if exception:
                 entry.response.task_response = f"Error: {str(exception)}"
                 
-            if worker_name:
-                entry.response.worker_name = worker_name
+            entry.response.worker_name = worker_id
                 
             if status == BrowserTaskStatus.COMPLETED or status == BrowserTaskStatus.FAILED:
                 entry.end_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -354,7 +353,7 @@ class TaskManager:
             )
             
             # Notify status listeners
-            self._notify_listeners(task_id, status, entry.response.task_response)
+            self._notify_listeners(worker_id, task_id, status, entry.response.task_response)
             
             return True
         except Exception as e:
@@ -370,7 +369,7 @@ _task_manager = None
 
 # Use get_task_manager() to get the TaskManager instance instead of TaskManager() directly 
 # This ensures that the TaskManager instance is a singleton
-async def get_task_manager():
+async def get_task_manager() -> TaskManager:
     """Dependency function to get the TaskManager instance."""
     global _task_manager
     if _task_manager is None:

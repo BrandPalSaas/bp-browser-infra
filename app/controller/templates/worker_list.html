@@ -83,6 +83,29 @@
             border-radius: 4px;
             margin-top: 10px;
         }
+        .task-response {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #edf7ed;
+            border-radius: 4px;
+            border-left: 4px solid #2ecc71;
+        }
+        .task-error {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #fdecea;
+            border-radius: 4px;
+            border-left: 4px solid #e74c3c;
+        }
+        .task-response pre, .task-error pre {
+            margin: 5px 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-family: monospace;
+            font-size: 0.9em;
+            max-height: 150px;
+            overflow-y: auto;
+        }
         .view-button {
             display: block;
             text-align: center;
@@ -132,18 +155,17 @@
         <div class="worker-card">
             <div class="worker-header">
                 <span class="worker-name">{{ worker.worker_id }}</span>
-                <span class="worker-status status-{{ worker.status | lower }}">{{ worker.status }}</span>
             </div>
             <div class="worker-info">
-                <p><strong>Hostname:</strong> {{ worker.hostname }}</p>
-                <p><strong>IP:</strong> {{ worker.ip_address }}</p>
-                <p><strong>Started:</strong> {{ worker.start_time }}</p>
-                <p><strong>Last Heartbeat:</strong> {{ worker.last_heartbeat }}</p>
+                <p><strong>Viewers:</strong> {{ worker.viewer_count }}</p>
+                <p><strong>Connected at:</strong> {{ worker.connected_at }}</p>
                 
                 {% if worker.current_task_id %}
                 <div class="task-info">
                     <p><strong>Current Task:</strong> {{ worker.current_task_id }}</p>
                 </div>
+                {% else %}
+                <p><em>No active task</em></p>
                 {% endif %}
             </div>
             <a href="/live/{{ worker.worker_id }}" class="view-button">View Live Session</a>

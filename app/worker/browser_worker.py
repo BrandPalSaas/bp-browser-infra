@@ -66,9 +66,9 @@ class BrowserWorker:
             
             # Update status to running
             await task_manager.update_task_result(
-                task_id, 
-                BrowserTaskStatus.RUNNING,
-                worker_name=self.id
+                worker_id=self.id,
+                task_id=task_id, 
+                status=BrowserTaskStatus.RUNNING
             )
             
             # Initialize the BrowserUse Agent
@@ -93,10 +93,10 @@ class BrowserWorker:
             
             # Update task result
             await task_manager.update_task_result(
-                task_id, 
-                BrowserTaskStatus.COMPLETED, 
-                response=json.dumps(raw_response.model_dump()),
-                worker_name=self.id
+                worker_id=self.id,
+                task_id=task_id, 
+                status=BrowserTaskStatus.COMPLETED, 
+                response=json.dumps(raw_response.model_dump())
             )
                 
             return True
@@ -110,12 +110,11 @@ class BrowserWorker:
             }
             
             await task_manager.update_task_result(
-                task_id, 
-                BrowserTaskStatus.FAILED, 
-                response=json.dumps(error_response),
-                worker_name=self.id
+                worker_id=self.id,
+                task_id=task_id, 
+                status=BrowserTaskStatus.FAILED, 
+                response=json.dumps(error_response)
             )
-                
             return False
         finally:
             if os.path.exists(gif_path):

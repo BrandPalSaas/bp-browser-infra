@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.common.models import BrowserTaskRequest, BrowserTaskResponse
+from app.common.models import BrowserTaskRequest, BrowserTaskResponse, WebSocketRequest, WebSocketRequestType
 from app.common.task_manager import get_task_manager, TaskManager
 from app.controller.worker_manager import get_worker_manager, WorkerManager
 
@@ -49,23 +49,17 @@ async def list_workers(
     request: Request, 
     worker_manager: WorkerManager = Depends(get_worker_manager)
 ):
-    # Add any workers that are directly connected but not in Redis
+    """Display list of active workers."""
     all_workers = []
     connected_worker_ids = worker_manager.get_connected_worker_ids()
     for worker_id in connected_worker_ids:
         if not any(w["worker_id"] == worker_id for w in all_workers):
             conn = worker_manager.get_worker_connection(worker_id)
-            worker = {
-                "worker_id": worker_id,
-                "direct_connected": True,
-                "streaming": conn.is_streaming,
-                "viewer_count": len(conn.viewer_connections),
-                **conn.worker_info
-            }
-            all_workers.append(worker)
+            all_workers.append(conn.to_worker_list_page_item().model_dump())
     
     return templates.TemplateResponse("worker_list.html", {
         "request": request,
+        "title": "Browser Worker Dashboard",
         "workers": all_workers
     })
 
@@ -109,6 +103,15 @@ async def websocket_viewer_connection(
         "message": "Interactive control is currently disabled"
     })
     
+    # Send initial task status if available
+    if worker_conn.current_task_id:
+        await websocket.send_json({
+            "type": "task_update",
+            "current_task_id": worker_conn.current_task_id,
+            "status": worker_conn.task_status,
+            "task_response": worker_conn.task_response,
+        })
+    
     # If we have a screenshot, send it immediately
     if worker_conn.last_screenshot:
         await websocket.send_bytes(worker_conn.last_screenshot)
@@ -143,13 +146,15 @@ async def websocket_worker_connection(
         await websocket.accept()
         
         # First message must be registration
-        registration = await websocket.receive_json()
-        if registration.get("type") != "register":
+        registration_json = await websocket.receive_json()
+        registration_request = WebSocketRequest(**registration_json)
+
+        if registration_request.request_type != WebSocketRequestType.WORKER_REGISTER:
             await websocket.close(code=1008, reason="First message must be registration")
             return
         
         # Handle registration
-        worker_id = await worker_manager.handle_worker_registration(websocket, registration)
+        worker_id = await worker_manager.handle_worker_registration(websocket, registration_request)
         
         # Loop to handle worker messages
         while True:
@@ -165,15 +170,10 @@ async def websocket_worker_connection(
                 # It's a text message
                 try:
                     data = json.loads(message["text"])
-                    message_type = data.get("type")
-                    
-                    if message_type == "heartbeat":
-                        # Respond to heartbeat with current viewer status
-                        await worker_manager.send_heartbeat_response(worker_id, websocket)
-                    else:
-                        # Handle other message types
-                        await worker_manager.handle_worker_message(worker_id, data)
-                            
+                    request = WebSocketRequest(**data)
+                    # Handle other message types
+                    await worker_manager.handle_worker_message(worker_id, request)
+
                 except json.JSONDecodeError:
                     log.error(f"Invalid JSON received from worker: {message['text']}")
                 except Exception as e:

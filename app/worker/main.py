@@ -37,6 +37,8 @@ async def main():
         task_manager = await get_task_manager()
         browser_worker = await get_browser_worker()
         live_view_manager = await get_live_view_manager()  # also starts the socket connection with controller
+        
+        task_manager.add_status_listener(live_view_manager.update_task_live_view)
         log.info("Starting worker", worker_id=browser_worker.id)
 
         # Start task processing

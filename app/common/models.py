@@ -43,3 +43,40 @@ class TaskEntry(BaseModel):
     end_at: Optional[str] = None
     
     
+class WorkerInfo(BaseModel):
+    worker_id: str
+    viewer_count: int
+
+
+class WorkerListPageItem(BaseModel):
+    worker_id: str
+    viewer_count: int
+    current_task_id: Optional[str] = None
+    connected_at: Optional[str] = None
+    
+
+# websocket request can come from worker or controller
+class WebSocketRequestType(str, Enum):
+    # request from worker
+    WORKER_REGISTER = "register"
+    WORKER_TASK_STATUS_UPDATE = "task_status_update"
+    WORKER_TASK_SCREENSHOT = "task_screenshot"
+
+    # requests from controller
+    CONTROLLER_VIEWER_STATUS_UPDATE = "viewer_status_update"
+
+class WebSocketResponseType(str, Enum):
+    REGISTER_SUCCESS = "register_success"
+
+class WebSocketRequest(BaseModel):
+    request_type: WebSocketRequestType
+    worker_id: str
+    viewer_count: Optional[int] = None
+    task_id: Optional[str] = None
+    task_status: Optional[BrowserTaskStatus] = None
+    task_result: Optional[str] = None
+
+
+class WebSocketResponse(BaseModel):
+    request_type: WebSocketResponseType
+    worker_id: str

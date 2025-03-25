@@ -133,6 +133,77 @@
             border-bottom: 1px solid #ddd;
         }
         
+        .task-panel {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        
+        .task-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .task-header h2 {
+            margin: 0;
+            font-size: 1.2em;
+        }
+        
+        .task-status-container {
+            display: flex;
+            align-items: center;
+        }
+        
+        .task-status-container p {
+            margin: 0;
+        }
+        
+        .task-status {
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        
+        .status-ready { background-color: #2ecc71; color: white; }
+        .status-running { background-color: #3498db; color: white; }
+        .status-waiting { background-color: #f39c12; color: white; }
+        .status-completed { background-color: #27ae60; color: white; }
+        .status-failed { background-color: #e74c3c; color: white; }
+        .status-error { background-color: #c0392b; color: white; }
+        
+        .task-response {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #edf7ed;
+            border-radius: 4px;
+            border-left: 4px solid #2ecc71;
+        }
+        
+        .task-error {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #fdecea;
+            border-radius: 4px;
+            border-left: 4px solid #e74c3c;
+        }
+        
+        .task-response pre, .task-error pre {
+            margin: 5px 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-family: monospace;
+            font-size: 0.9em;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .task-content {
+            margin-top: 10px;
+        }
+        
         /* Responsive adjustments */
         @media (max-width: 768px) {
             .browser-view {
@@ -152,6 +223,19 @@
     
     <div id="info-bar">
         <p>View-only mode: This page displays a live view of the browser worker. Interactive control is not available.</p>
+    </div>
+    
+    <div class="task-panel">
+        <div class="task-header">
+            <h2>Current Task</h2>
+            <div id="task-status-container">
+                <p><strong>Task ID:</strong> <span id="task-id">None</span></p>
+                <span id="task-status" class="task-status status-ready">READY</span>
+            </div>
+        </div>
+        <div class="task-content" id="task-content">
+            <p><em>No active task</em></p>
+        </div>
     </div>
     
     <div class="main-content">
@@ -186,90 +270,91 @@
         const connectionStatus = document.getElementById('connection-status');
         const statusText = document.getElementById('status-text');
         
+        // Function to update task status
+        function updateTaskStatus(data) {
+            const taskIdElement = document.getElementById('task-id');
+            const taskStatusElement = document.getElementById('task-status');
+            const taskContentElement = document.getElementById('task-content');
+            
+            if (data.current_task_id) {
+                taskIdElement.textContent = data.current_task_id;
+                taskStatusElement.className = `task-status status-${(data.status).toLowerCase()}`;
+                taskStatusElement.textContent = data.status;
+                
+                let content = '';
+                
+                if (data.task_response) {
+                    content += `
+                        <div class="task-response">
+                            <p><strong>Response:</strong></p>
+                            <pre>${data.task_response}</pre>
+                        </div>
+                    `;
+                }
+                
+                taskContentElement.innerHTML = content || '<p><em>Task in progress...</em></p>';
+            } else {
+                taskIdElement.textContent = 'None';
+                taskStatusElement.className = 'task-status status-ready';
+                taskStatusElement.textContent = '';
+                taskContentElement.innerHTML = '<p><em>No active task</em></p>';
+            }
+        }
+        
         // Function to create and manage WebSocket connection
         function connectWebSocket() {
-            // Determine if we're connecting to central controller or directly to worker
-            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${wsProtocol}//${window.location.host}/ws/live/${workerId}`;
+            // Close existing socket if any
+            if (socket) {
+                socket.close();
+            }
             
-            // Connect to WebSocket
-            setConnectionStatus('connecting');
-            loadingMessage.textContent = 'Connecting to worker...';
-            
-            socket = new WebSocket(wsUrl);
+            // Create new WebSocket connection
+            socket = new WebSocket(`ws://${window.location.host}/ws/live/${workerId}`);
             
             socket.onopen = function() {
                 console.log('WebSocket connected');
-                isConnected = true;
-                reconnectAttempts = 0;
-                setConnectionStatus('connected');
-                loadingOverlay.style.display = 'none';
+                connectionStatus.classList.remove('disconnected');
+                connectionStatus.classList.add('connected');
+                statusText.textContent = 'Connected';
             };
             
-            socket.onclose = function(event) {
-                console.log('WebSocket disconnected', event);
-                isConnected = false;
-                setConnectionStatus('disconnected');
+            socket.onclose = function() {
+                console.log('WebSocket disconnected');
+                connectionStatus.classList.remove('connected');
+                connectionStatus.classList.add('disconnected');
+                statusText.textContent = 'Disconnected';
+                loadingMessage.textContent = 'Connection lost. Reconnecting...';
+                loadingOverlay.style.display = 'flex';
                 
-                // Attempt to reconnect if not manually closed
-                if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-                    reconnectAttempts++;
-                    loadingMessage.textContent = `Connection lost. Reconnecting (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`;
-                    loadingOverlay.style.display = 'flex';
-                    setTimeout(connectWebSocket, RECONNECT_DELAY_MS);
-                } else {
-                    loadingMessage.textContent = 'Connection lost. Please refresh the page to reconnect.';
-                    loadingOverlay.style.display = 'flex';
-                }
-            };
-            
-            socket.onerror = function(error) {
-                console.error('WebSocket error:', error);
+                // Try to reconnect in 3 seconds
+                setTimeout(connectWebSocket, 3000);
             };
             
             socket.onmessage = function(event) {
+                // Hide loading overlay when we get our first message
+                loadingOverlay.style.display = 'none';
+                
                 if (event.data instanceof Blob) {
-                    // Handle binary data (screenshot)
+                    // Handle screenshot update
                     const url = URL.createObjectURL(event.data);
                     browserScreen.src = url;
-                    
-                    // Clean up the old URL to avoid memory leaks
-                    const oldUrl = browserScreen.dataset.blobUrl;
-                    if (oldUrl) {
-                        URL.revokeObjectURL(oldUrl);
-                    }
+                    // Clean up old URL to avoid memory leaks
+                    URL.revokeObjectURL(browserScreen.dataset.blobUrl);
                     browserScreen.dataset.blobUrl = url;
                 } else {
                     // Handle JSON messages
                     try {
-                        const message = JSON.parse(event.data);
-                        console.log('Received message:', message);
+                        const data = JSON.parse(event.data);
+                        console.log('Received message:', data);
                         
-                        // We just log messages in view-only mode
-                        if (message.type === 'view_only_mode') {
-                            console.log('View only mode:', message.message);
+                        if (data.type === 'task_update') {
+                            updateTaskStatus(data);
                         }
                     } catch (e) {
                         console.error('Error parsing message:', e);
                     }
                 }
             };
-        }
-        
-        // Update connection status UI
-        function setConnectionStatus(status) {
-            connectionStatus.className = 'status-dot ' + status;
-            switch (status) {
-                case 'connected':
-                    statusText.textContent = 'Connected';
-                    break;
-                case 'connecting':
-                    statusText.textContent = 'Connecting...';
-                    break;
-                case 'disconnected':
-                    statusText.textContent = 'Disconnected';
-                    break;
-            }
         }
         
         // Initialize connection on page load

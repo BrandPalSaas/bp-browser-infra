@@ -4,7 +4,10 @@ import uuid
 import structlog
 from datetime import datetime
 from typing import Dict, Set, Optional, Any, List
-from fastapi import WebSocket, WebSocketDisconnect
+from fastapi import WebSocket
+from app.common.models import WorkerInfo, WebSocketRequest,\
+      WebSocketRequestType, WebSocketResponse, WebSocketResponseType, BrowserTaskStatus, WorkerListPageItem
+      
 
 log = structlog.get_logger(__name__)
 
@@ -16,9 +19,24 @@ class WorkerConnection:
         self.viewer_connections: Set[WebSocket] = set()
         self.worker_connection: Optional[WebSocket] = None
         self.last_screenshot = None
+        self.connected_at = None
         self.last_updated = datetime.now()
-        self.worker_info: Dict[str, Any] = {}
         self.is_streaming = False
+
+        # Task related fields
+        self.current_task_id = ""
+        self.task_status = BrowserTaskStatus.WAITING
+        self.task_response = ""
+    
+    
+    # convert to worker list html page item
+    def to_worker_list_page_item(self) -> WorkerListPageItem:
+        return WorkerListPageItem(
+            worker_id=self.worker_id,
+            viewer_count=len(self.viewer_connections),
+            current_task_id=self.current_task_id,
+            connected_at=self.connected_at.isoformat() if self.connected_at else None
+        )
     
     def add_viewer(self, websocket: WebSocket) -> None:
         """Add a client viewer connection"""
@@ -43,15 +61,17 @@ class WorkerConnection:
     async def send_viewer_status_update(self) -> None:
         """Send viewer status update to worker"""
         if not self.worker_connection:
+            log.warning(f"Worker {self.worker_id} not connected, skipping viewer status update")
             return
             
         has_viewers = len(self.viewer_connections) > 0
         try:
-            await self.worker_connection.send_json({
-                "type": "viewer_status_update",
-                "has_viewers": has_viewers,
-                "viewer_count": len(self.viewer_connections)
-            })
+            request = WebSocketRequest(
+                request_type=WebSocketRequestType.CONTROLLER_VIEWER_STATUS_UPDATE, 
+                worker_id=self.worker_id,
+                viewer_count=len(self.viewer_connections))
+
+            await self.worker_connection.send_json(request.model_dump())
             log.info(f"Notified worker {self.worker_id} about viewer status: {has_viewers} viewers")
             self.is_streaming = has_viewers
         except Exception as e:
@@ -61,6 +81,7 @@ class WorkerConnection:
         """Set the worker's WebSocket connection"""
         self.worker_connection = websocket
         self.last_updated = datetime.now()
+        self.connected_at = datetime.now()
         log.info(f"Worker {self.worker_id} connected")
         
         # Notify worker about current viewer status when it connects
@@ -70,6 +91,7 @@ class WorkerConnection:
     def remove_worker_connection(self) -> None:
         """Remove the worker's WebSocket connection"""
         self.worker_connection = None
+        self.connected_at = None
         log.info(f"Worker {self.worker_id} disconnected")
     
     def update_screenshot(self, screenshot_data: bytes) -> None:
@@ -85,9 +107,13 @@ class WorkerConnection:
         """Check if the worker is connected"""
         return self.worker_connection is not None
     
-    def update_worker_info(self, info: Dict[str, Any]) -> None:
-        """Update the worker's information"""
-        self.worker_info.update(info)
+    def update_task_status(self, request: WebSocketRequest) -> None:
+        """Update task status from a WebSocketRequest"""
+        self.current_task_id = request.task_id if request.task_id else ""
+        self.task_status = request.task_status if request.task_status else BrowserTaskStatus.WAITING
+        self.task_response = request.task_result if request.task_result else ""
+            
+        # Update last_updated timestamp
         self.last_updated = datetime.now()
     
     async def forward_screenshot_to_viewers(self, screenshot_data: bytes) -> None:
@@ -101,6 +127,25 @@ class WorkerConnection:
                 await viewer.send_bytes(screenshot_data)
             except Exception as e:
                 log.error(f"Error sending screenshot to viewer", error=str(e))
+    
+    async def forward_task_update_to_viewers(self, request: WebSocketRequest) -> None:
+        """Forward task update to all connected viewers"""
+        # First update our task status
+        self.update_task_status(request)
+        
+        # Now send a task update message to all viewers
+        task_update = {
+            "type": "task_update",
+            "current_task_id": self.current_task_id,
+            "status": self.task_status,
+            "task_response": self.task_response,
+        }
+        
+        for viewer in self.viewer_connections:
+            try:
+                await viewer.send_json(task_update)
+            except Exception as e:
+                log.error(f"Error sending task update to viewer", error=str(e))
     
     async def forward_message_to_viewers(self, message: str) -> None:
         """Forward a text message to all connected viewers"""
@@ -117,6 +162,7 @@ class WorkerManager:
     """Manages all worker connections and their state."""
     
     def __init__(self):
+        # woker_id -> WorkerConnection
         self.worker_connections: Dict[str, WorkerConnection] = {}
     
     def get_worker_connection(self, worker_id: str) -> WorkerConnection:
@@ -127,48 +173,35 @@ class WorkerManager:
     
     def get_all_workers(self) -> List[Dict[str, Any]]:
         """Get a list of all connected workers and their info."""
-        workers = []
+        workers_info = []
         for worker_id, conn in self.worker_connections.items():
             if conn.is_connected():
-                worker_data = {
-                    "worker_id": worker_id,
-                    "is_streaming": conn.is_streaming,
-                    "viewer_count": len(conn.viewer_connections),
-                    "last_updated": conn.last_updated.isoformat(),
-                    **conn.worker_info
-                }
-                workers.append(worker_data)
-        return workers
+                workers_info.append(WorkerInfo(worker_id=worker_id, viewer_count=len(conn.viewer_connections)))
+        return workers_info
     
     def get_connected_worker_ids(self) -> List[str]:
         """Get a list of all connected worker IDs."""
         return [worker_id for worker_id, conn in self.worker_connections.items() 
                 if conn.is_connected()]
     
-    async def handle_worker_registration(self, websocket: WebSocket, registration_data: Dict[str, Any]) -> str:
+    async def handle_worker_registration(self, websocket: WebSocket, request: WebSocketRequest) -> str:
         """Handle worker registration and return the worker ID."""
         # Extract worker ID and info
-        worker_id = registration_data.get("worker_id")
-        if not worker_id:
-            raise RuntimeError(f"Worker ID is required in registration data: {registration_data}")
-        
-        worker_info = registration_data.get("info", {})
-        
-        # Register the worker
+        if not request.worker_id or not request.request_type == WebSocketRequestType.WORKER_REGISTER:
+            raise RuntimeError(f"Worker ID is required in registration data: {request.model_dump()}")
+
+        worker_id = request.worker_id
         worker_conn = self.get_worker_connection(worker_id)
         worker_conn.set_worker_connection(websocket)
-        worker_conn.update_worker_info(worker_info)
         
         # Send confirmation
-        await websocket.send_json({
-            "type": "registered",
-            "worker_id": worker_id
-        })
+        response = WebSocketResponse(request_type=WebSocketResponseType.REGISTER_SUCCESS, worker_id=worker_id)
+        await websocket.send_json(response.model_dump())
         
         log.info(f"Worker {worker_id} registered")
         return worker_id
     
-    async def handle_worker_message(self, worker_id: str, message: Dict) -> None:
+    async def handle_worker_message(self, worker_id: str, message: WebSocketRequest) -> None:
         """Handle a message from a worker."""
         if not worker_id or worker_id not in self.worker_connections:
             log.error(f"Received message for unknown worker: {worker_id}")
@@ -177,23 +210,11 @@ class WorkerManager:
         worker_conn = self.worker_connections[worker_id]
         
         # Check message type
-        message_type = message.get("type")
-        
-        if message_type == "task_update":
-            # Worker is reporting task status, update info
-            worker_conn.update_worker_info({
-                "current_task_id": message.get("task_id"),
-                "task_status": message.get("status")
-            })
+        if message.request_type == WebSocketRequestType.WORKER_TASK_STATUS_UPDATE:
+            # Update worker's task status and forward to viewers
+            log.info(f"Received task status update for worker {worker_id}, task {message.task_id}, status {message.task_status}")
+            await worker_conn.forward_task_update_to_viewers(message)
             
-            # Forward to all viewers
-            message_json = json.dumps(message)
-            await worker_conn.forward_message_to_viewers(message_json)
-            
-        elif message_type == "status_update":
-            # Worker is reporting status changes
-            worker_conn.update_worker_info(message.get("info", {}))
-        
     async def handle_worker_binary(self, worker_id: str, binary_data: bytes) -> None:
         """Handle binary data (screenshot) from a worker."""
         if not worker_id or worker_id not in self.worker_connections:
@@ -202,20 +223,6 @@ class WorkerManager:
         
         worker_conn = self.worker_connections[worker_id]
         await worker_conn.forward_screenshot_to_viewers(binary_data)
-    
-    async def send_heartbeat_response(self, worker_id: str, websocket: WebSocket) -> None:
-        """Send heartbeat response to a worker."""
-        if not worker_id or worker_id not in self.worker_connections:
-            log.error(f"Heartbeat for unknown worker: {worker_id}")
-            return
-        
-        worker_conn = self.worker_connections[worker_id]
-        
-        await websocket.send_json({
-            "type": "heartbeat_ack",
-            "has_viewers": worker_conn.has_active_viewers(),
-            "viewer_count": len(worker_conn.viewer_connections)
-        })
 
 
 # Create a singleton instance
