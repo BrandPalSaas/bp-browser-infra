@@ -64,7 +64,7 @@ async def list_workers(
             }
             all_workers.append(worker)
     
-    return templates.TemplateResponse("live_list.html", {
+    return templates.TemplateResponse("worker_list.html", {
         "request": request,
         "workers": all_workers
     })
