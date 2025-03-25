@@ -111,6 +111,8 @@ class WorkerConnection:
                 log.error(f"Error forwarding message to viewer", error=str(e))
 
 
+# Use get_worker_manager() to get the WorkerManager instance instead of WorkerManager() directly 
+# This ensures that the WorkerManager instance is a singleton
 class WorkerManager:
     """Manages all worker connections and their state."""
     
@@ -148,8 +150,7 @@ class WorkerManager:
         # Extract worker ID and info
         worker_id = registration_data.get("worker_id")
         if not worker_id:
-            # Generate a worker ID if none provided
-            worker_id = f"worker-{uuid.uuid4().hex[:8]}"
+            raise RuntimeError(f"Worker ID is required in registration data: {registration_data}")
         
         worker_info = registration_data.get("info", {})
         
@@ -218,8 +219,9 @@ class WorkerManager:
 
 
 # Create a singleton instance
-worker_manager = WorkerManager()
+_worker_manager = WorkerManager()
 
+# factory method
 def get_worker_manager() -> WorkerManager:
     """Get the singleton worker manager instance."""
-    return worker_manager 
+    return _worker_manager 

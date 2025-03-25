@@ -1,23 +1,21 @@
 import os
 import json
-import asyncio
-import uuid
 import structlog
-from datetime import datetime
 from typing import Dict, Set, List, Optional, Any
 from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, Request, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.common.models import BrowserTaskRequest, BrowserTaskResponse, BrowserTaskDetail
-from app.common.task_manager import TaskManager
-from app.controller.worker_manager import worker_manager, get_worker_manager, WorkerManager
-from app.common.dep_locator import dep_locator, get_dep_locator
-from app.common.worker_manager import WorkerConnection
-from app.common.redis_client import get_redis_client
+from app.common.models import BrowserTaskRequest, BrowserTaskResponse
+from app.common.task_manager import get_task_manager, TaskManager
+from app.controller.worker_manager import get_worker_manager, WorkerManager
+
+from dotenv import load_dotenv
+load_dotenv()
+
 
 # Set up logging
 log = structlog.get_logger(__name__)
@@ -31,12 +29,6 @@ app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")
 # Create Jinja2 templates
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
-# Set up task manager
-task_manager = TaskManager()
-
-# Register dependencies
-dep_locator.register("task_manager", task_manager)
-dep_locator.register("worker_manager", WorkerManager())
 
 # CORS middleware
 app.add_middleware(
@@ -47,12 +39,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Dependency injection
-def get_task_manager() -> TaskManager:
-    return dep_locator.get("task_manager")
-
-def get_worker_manager() -> WorkerManager:
-    return dep_locator.get("worker_manager")
 
 @app.get("/")
 async def root():
@@ -61,42 +47,16 @@ async def root():
 @app.get("/live", response_class=HTMLResponse)
 async def list_workers(
     request: Request, 
-    task_manager: TaskManager = Depends(get_task_manager),
     worker_manager: WorkerManager = Depends(get_worker_manager)
 ):
-    """Show a list of active workers."""
-    # Get workers from both Redis registry and direct connections
-    redis_workers = await task_manager.get_active_workers()
-    
-    # Add any direct-connected workers not in Redis
-    all_workers = []
-    for worker in redis_workers:
-        worker_id = worker["worker_id"]
-        # Ensure worker_name is consistent with worker_id
-        if "worker_name" not in worker:
-            worker["worker_name"] = worker_id
-        
-        # Check if we have a direct connection
-        conn = worker_manager.get_worker_connection(worker_id)
-        if conn.is_connected():
-            worker["direct_connected"] = True
-            # Update with any additional info from the direct connection
-            worker.update(conn.worker_info)
-            worker["streaming"] = conn.is_streaming
-            worker["viewer_count"] = len(conn.viewer_connections)
-        else:
-            worker["direct_connected"] = False
-            
-        all_workers.append(worker)
-    
     # Add any workers that are directly connected but not in Redis
+    all_workers = []
     connected_worker_ids = worker_manager.get_connected_worker_ids()
     for worker_id in connected_worker_ids:
         if not any(w["worker_id"] == worker_id for w in all_workers):
             conn = worker_manager.get_worker_connection(worker_id)
             worker = {
                 "worker_id": worker_id,
-                "worker_name": worker_id,
                 "direct_connected": True,
                 "streaming": conn.is_streaming,
                 "viewer_count": len(conn.viewer_connections),
@@ -127,53 +87,6 @@ async def live_view(
         "worker_id": worker_id
     })
 
-@app.get("/api/workers", response_model=List[Dict[str, Any]])
-async def get_active_workers(
-    worker_manager: WorkerManager = Depends(get_worker_manager),
-    task_manager: TaskManager = Depends(get_task_manager)
-):
-    """Get a list of all active workers."""
-    redis_workers = await task_manager.get_active_workers()
-    connected_workers = worker_manager.get_all_workers()
-    
-    # Combine the two sources
-    all_workers = {}
-    
-    # Add Redis workers
-    for worker in redis_workers:
-        worker_id = worker["worker_id"]
-        all_workers[worker_id] = worker
-    
-    # Update with directly connected workers
-    for worker in connected_workers:
-        worker_id = worker["worker_id"]
-        if worker_id in all_workers:
-            all_workers[worker_id].update(worker)
-            all_workers[worker_id]["direct_connected"] = True
-        else:
-            worker["direct_connected"] = True
-            all_workers[worker_id] = worker
-    
-    return list(all_workers.values())
-
-@app.get("/api/workers/{worker_id}/screenshot")
-async def get_worker_screenshot(
-    worker_id: str, 
-    worker_manager: WorkerManager = Depends(get_worker_manager)
-):
-    """Get the latest screenshot for a worker."""
-    worker_conn = worker_manager.get_worker_connection(worker_id)
-    
-    if not worker_conn.is_connected():
-        raise HTTPException(status_code=404, detail="Worker not found or not connected")
-    
-    if not worker_conn.last_screenshot:
-        raise HTTPException(status_code=404, detail="No screenshot available for this worker")
-    
-    return StreamingResponse(
-        content=iter([worker_conn.last_screenshot]),
-        media_type="image/jpeg"
-    )
 
 @app.websocket("/ws/live/{worker_id}")
 async def websocket_viewer_connection(
@@ -215,6 +128,7 @@ async def websocket_viewer_connection(
     finally:
         # Remove viewer
         worker_conn.remove_viewer(websocket)
+
 
 @app.websocket("/ws/worker")
 async def websocket_worker_connection(
@@ -289,7 +203,7 @@ async def start_browser_task(
         log.exception("Error submitting task", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/browser/task/{task_id}", response_model=BrowserTaskDetail)
+@app.get("/browser/task/{task_id}", response_model=BrowserTaskResponse)
 async def get_task_status(
     task_id: str,
     task_manager: TaskManager = Depends(get_task_manager)
@@ -298,7 +212,7 @@ async def get_task_status(
     Get the status of a task.
     """
     try:
-        task = await task_manager.get_task(task_id)
+        task = await task_manager.get_task_result(task_id)
         if not task:
             raise HTTPException(status_code=404, detail="Task not found")
         return task
