@@ -11,53 +11,51 @@ import traceback
 from typing import Optional
 
 from app.common.models import BrowserTaskStatus, TaskEntry, RawResponse
-from app.common.task_manager import TaskManager
+from app.common.task_manager import get_task_manager
 from app.common.constants import TASK_RESULTS_DIR
 from dotenv import load_dotenv
 load_dotenv()
 
 log = structlog.get_logger(__name__)
 
+# BrowserWorker is a singleton, use get_browser_worker() to get the BrowserWorker instance instead of BrowserWorker() directly 
+# This ensures that the BrowserWorker instance is a singleton
 class BrowserWorker:
-    """The browser worker processes tasks from Redis."""
+    """The browser worker processes browser automation tasks"""
     
     def __init__(self):
         """Initialize the worker."""
-        self.browser = None
-        self.task_manager = TaskManager()
-        self.ready = False
-        self.running = True
+        self._browser = None
+        self._running = True
         
-        # Generate a unique consumer name for this worker
-        hostname = socket.gethostname()
         random_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
-        self.consumer_name = f"worker-{hostname}-{random_id}"
+        self._worker_id = f"worker-{socket.gethostname()}-{random_id}"
+
+    @property
+    def id(self) -> str:
+        return self._worker_id
+    
+    @property
+    def browser_instance(self) -> Browser:
+        return self._browser
 
     async def initialize(self):
         """Initialize the worker and connect to Redis."""
-        # Initialize task manager
-        if not await self.task_manager.initialize():
-            log.error("Failed to connect to Redis. Exiting.")
-            return False
-        
         try:
-            log.info("Initializing browser", name=self.consumer_name)
-            self.browser = Browser(config=BrowserConfig(headless=False, disable_security=True))
-            self.ready = True
+            log.info("Initializing browser", name=self.id)
+            self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True))
             log.info("Browser initialized and ready")
             return True
         except Exception as e:
             log.error("Failed to initialize browser", error=str(e), exc_info=True)
             return False
     
-    def get_browser(self) -> Browser:
-        return self.browser
-    
     async def process_task(self, entry: TaskEntry) -> bool:
         
         task_id = entry.task_id
         log_ctx = log.bind(task_id=task_id)
         gif_path = f"{TASK_RESULTS_DIR}/{task_id}.gif"
+        task_manager = await get_task_manager()
 
         try:
             log_ctx.info("Processing task", entry=entry)
@@ -67,15 +65,15 @@ class BrowserWorker:
                 os.makedirs(TASK_RESULTS_DIR)
             
             # Update status to running
-            await self.task_manager.update_task_result(
+            await task_manager.update_task_result(
                 task_id, 
                 BrowserTaskStatus.RUNNING,
-                worker_name=self.consumer_name
+                worker_name=self.id
             )
             
             # Initialize the BrowserUse Agent
             agent = Agent(
-                browser=self.browser,
+                browser=self._browser,
                 task=entry.request.task_description,
                 llm=ChatOpenAI(model="gpt-4o"),
                 generate_gif=gif_path
@@ -94,11 +92,11 @@ class BrowserWorker:
             log_ctx.info("Task completed successfully", result=raw_response)
             
             # Update task result
-            await self.task_manager.update_task_result(
+            await task_manager.update_task_result(
                 task_id, 
                 BrowserTaskStatus.COMPLETED, 
                 response=json.dumps(raw_response.model_dump()),
-                worker_name=self.consumer_name
+                worker_name=self.id
             )
                 
             return True
@@ -111,11 +109,11 @@ class BrowserWorker:
                 "stacktrace": traceback.format_exc()
             }
             
-            await self.task_manager.update_task_result(
+            await task_manager.update_task_result(
                 task_id, 
                 BrowserTaskStatus.FAILED, 
                 response=json.dumps(error_response),
-                worker_name=self.consumer_name
+                worker_name=self.id
             )
                 
             return False
@@ -128,17 +126,13 @@ class BrowserWorker:
     async def read_tasks(self):
         """Read tasks from Redis stream and process them."""
         # Ensure consumer group exists
-        await self.task_manager.create_consumer_group()
+        task_manager = await get_task_manager()
+        await task_manager.create_consumer_group()
         
-        while self.running:
+        while self._running:
             try:
-                if not self.ready:
-                    log.warning("Worker not ready, waiting...")
-                    await asyncio.sleep(1)
-                    continue
-                
                 # This claims the message but doesn't acknowledge it yet
-                task_data = await self.task_manager.read_next_task(self.consumer_name)
+                task_data = await task_manager.read_next_task(self.id)
                 
                 if not task_data:  # No new messages
                     continue
@@ -150,7 +144,7 @@ class BrowserWorker:
                     process_success = await self.process_task(entry=entry)
                     log_ctx.info("Task processed", process_success=process_success)
                     if process_success:
-                        await self.task_manager.acknowledge_task(message_id=message_id)
+                        await task_manager.acknowledge_task(message_id=message_id)
                 except Exception as e:
                     log_ctx.exception("Error processing task", error=str(e), exc_info=True)
                 
@@ -159,15 +153,27 @@ class BrowserWorker:
                 await asyncio.sleep(1)  # Avoid tight loop on persistent errors
     
     async def shutdown(self):
-        """Cleanup and shutdown the worker."""
-        self.running = False
-        log.info("Shutting down worker")
-        
-        if self.browser:
-            await self.browser.close()
-            log.info("Browser closed")
-        
-        # Close Redis connection
-        if self.task_manager and self.task_manager.redis:
-            await self.task_manager.redis.close()
-            log.info("Redis connection closed") 
+        """Shutdown the browser worker."""
+        self._running = False
+        await self._browser.close()
+        log.info("Browser worker shutdown complete")
+
+
+# BrowserWorker Singleton
+_browser_worker = None
+
+# Use get_browser_worker() to get the BrowserWorker instance instead of BrowserWorker() directly 
+# This ensures that the BrowserWorker instance is a singleton
+async def get_browser_worker():
+    global _browser_worker
+    if _browser_worker is None:
+        _browser_worker = BrowserWorker()
+        if not await _browser_worker.initialize():
+            raise Exception("Failed to initialize browser worker")
+    return _browser_worker
+
+async def shutdown_browser_worker():
+    global _browser_worker
+    if _browser_worker:
+        await _browser_worker.shutdown()
+        _browser_worker = None

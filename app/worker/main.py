@@ -5,134 +5,68 @@ Browser Worker Main Entry Point
 import os
 import asyncio
 import signal
-import sys
-from typing import Optional, Union, Dict, Any
-from browser_worker import BrowserWorker
-from live_view import LiveViewManager, start_live_view_server
-from app.common.task_manager import TaskStatusCallback
-from app.common.models import BrowserTaskStatus
-from dotenv import load_dotenv
-
 import structlog
+from dotenv import load_dotenv
+from app.common.task_manager import get_task_manager, shutdown_task_manager
+from app.worker.browser_worker import get_browser_worker, shutdown_browser_worker
+from app.worker.live_view import get_live_view_manager, shutdown_live_view_manager
+# Set up logging
 log = structlog.get_logger(__name__)
 
 # Load environment variables
 load_dotenv()
 
-class WorkerService:
-    """Service class that encapsulates worker and live view functionality."""
-    
-    def __init__(self):
-        self.worker = None
-        self.live_view_manager = None
-        self.tasks = []
-        self.running = True
-    
-    async def initialize(self):
-        """Initialize the worker and live view manager."""
-        log.info("Starting Browser Worker")
-        
-        # Create and initialize worker
-        self.worker = BrowserWorker()
-        
-        # Create live view manager
-        self.live_view_manager = LiveViewManager()
-        
-        # Initialize and run the worker
-        if await self.worker.initialize():
-            log.info("Worker initialized successfully")
-            
-            # Initialize the live view manager with the browser instance
-            if self.live_view_manager.initialize(self.worker.get_browser()):
-                log.info("Live view manager initialized successfully")
-                
-                # Use a true anonymous function to connect task updates directly to the live view manager
-                self.worker.task_manager.add_status_listener(self.live_view_manager.update_task_info)
-                
-                # Start live view server
-                live_view_port = int(os.getenv("LIVE_VIEW_PORT", 3000))
-                log.info(f"Starting live view server on port {live_view_port}")
-                log.info(f"Live view available at: http://localhost:{live_view_port}/")
-                
-                live_view_task = asyncio.create_task(
-                    start_live_view_server(
-                        live_view_manager=self.live_view_manager, 
-                        worker_name=self.worker.consumer_name,
-                        port=live_view_port
-                    )
-                )
-                self.tasks.append(live_view_task)
-            
-            # Start worker task processing
-            worker_task = asyncio.create_task(self.worker.read_tasks())
-            self.tasks.append(worker_task)
-            return True
-        else:
-            log.error("Worker initialization failed")
-            return False
-    
-    async def shutdown(self):
-        """Gracefully shutdown the worker and server."""
-        if not self.running:
-            return
-            
-        self.running = False
-        log.info("Shutting down services...")
-        
-        # We're using true anonymous functions now, so no need to unregister
-        # The listeners will be garbage collected when task_manager is destroyed
-        
-        # Cancel all tasks
-        for task in self.tasks:
-            if not task.done():
-                task.cancel()
-        
-        # Wait briefly for tasks to handle cancellation
-        if self.tasks:
-            await asyncio.wait(self.tasks, timeout=5.0)
-            
-        # Shutdown live view manager
-        if self.live_view_manager:
-            await self.live_view_manager.shutdown()
-        
-        # Then shutdown worker
-        if self.worker:
-            await self.worker.shutdown()
-        
-        log.info("All services shutdown complete")
+# Global flag for shutdown
+running = True
+
+def signal_handler(signum, frame):
+    """Handle termination signals."""
+    global running
+    log.info("Received shutdown signal")
+    running = False
 
 async def main():
-    """Main entry point."""
-    service = WorkerService()
-    
+    """Main entry point for the worker."""
     # Set up signal handlers
-    def handle_signal():
-        if service.running:
-            log.info("Received signal, initiating shutdown")
-            asyncio.create_task(service.shutdown())
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
     
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, handle_signal)
-    
+    tasks = []
     try:
-        # Initialize service
-        if await service.initialize():
-            log.info(f"Worker service initialized and running: ******{service.worker.consumer_name}*****")
+        # Initialize worker and task manager
+        task_manager = await get_task_manager()
+        browser_worker = await get_browser_worker()
+        live_view_manager = await get_live_view_manager()  # also starts the socket connection with controller
+        log.info("Starting worker", worker_id=browser_worker.id)
+
+        # Start task processing
+        tasks.append(asyncio.create_task(browser_worker.read_tasks()))
+
+        # Wait for shutdown signal
+        global running
+        while running:
+            await asyncio.sleep(1)
             
-            # Simply wait for all tasks to complete instead of polling
-            # This will be interrupted by task cancellation from signal handler
-            done, pending = await asyncio.wait(service.tasks, return_when=asyncio.FIRST_COMPLETED)
-            
-            # Check if any completed task had an exception
-            for task in done:
-                if task.exception():
-                    log.error(f"Task failed with exception: {task.exception()}")
     except Exception as e:
-        log.exception("Unexpected error in main loop", error=str(e))
+        log.exception("Error in main loop", error=str(e))
     finally:
-        # Ensure services are properly shut down
-        await service.shutdown()
+        # Clean shutdown
+        log.info("Shutting down...")
+        
+        # Cancel tasks
+        for task in tasks:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        
+        # Shutdown components
+        await shutdown_live_view_manager()
+        await shutdown_browser_worker()
+        await shutdown_task_manager()
+        
+        log.info("Shutdown complete")
 
 if __name__ == "__main__":
     asyncio.run(main())

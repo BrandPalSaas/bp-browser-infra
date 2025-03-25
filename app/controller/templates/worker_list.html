@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Browser Worker Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+        }
+        .workers-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 20px;
+        }
+        .worker-card {
+            background-color: white;
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+        .worker-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        .worker-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        .worker-name {
+            font-weight: bold;
+            font-size: 1.2em;
+            color: #2980b9;
+        }
+        .worker-status {
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+        .status-ready {
+            background-color: #2ecc71;
+            color: white;
+        }
+        .status-busy {
+            background-color: #f39c12;
+            color: white;
+        }
+        .status-initializing {
+            background-color: #3498db;
+            color: white;
+        }
+        .status-error {
+            background-color: #e74c3c;
+            color: white;
+        }
+        .worker-info {
+            margin-bottom: 15px;
+        }
+        .worker-info p {
+            margin: 5px 0;
+            color: #7f8c8d;
+        }
+        .worker-info strong {
+            color: #34495e;
+        }
+        .task-info {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        .view-button {
+            display: block;
+            text-align: center;
+            background-color: #3498db;
+            color: white;
+            text-decoration: none;
+            padding: 10px;
+            border-radius: 4px;
+            font-weight: bold;
+            transition: background-color 0.2s;
+        }
+        .view-button:hover {
+            background-color: #2980b9;
+        }
+        .no-workers {
+            text-align: center;
+            padding: 40px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .refresh-btn {
+            display: inline-block;
+            padding: 10px 15px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-bottom: 20px;
+            font-weight: bold;
+            transition: background-color 0.2s;
+        }
+        .refresh-btn:hover {
+            background-color: #2980b9;
+        }
+    </style>
+</head>
+<body>
+    <h1>Browser Worker Dashboard</h1>
+    
+    <button class="refresh-btn" onclick="window.location.reload()">Refresh Workers</button>
+    
+    {% if workers %}
+    <div class="workers-container">
+        {% for worker in workers %}
+        <div class="worker-card">
+            <div class="worker-header">
+                <span class="worker-name">{{ worker.worker_id }}</span>
+                <span class="worker-status status-{{ worker.status | lower }}">{{ worker.status }}</span>
+            </div>
+            <div class="worker-info">
+                <p><strong>Hostname:</strong> {{ worker.hostname }}</p>
+                <p><strong>IP:</strong> {{ worker.ip_address }}</p>
+                <p><strong>Started:</strong> {{ worker.start_time }}</p>
+                <p><strong>Last Heartbeat:</strong> {{ worker.last_heartbeat }}</p>
+                
+                {% if worker.current_task_id %}
+                <div class="task-info">
+                    <p><strong>Current Task:</strong> {{ worker.current_task_id }}</p>
+                </div>
+                {% endif %}
+            </div>
+            <a href="/live/{{ worker.worker_id }}" class="view-button">View Live Session</a>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="no-workers">
+        <h2>No active workers found</h2>
+        <p>There are currently no browser workers connected to the system.</p>
+    </div>
+    {% endif %}
+    
+    <script>
+        // Auto-refresh the page every 30 seconds
+        setTimeout(() => {
+            window.location.reload();
+        }, 30000);
+    </script>
+</body>
+</html> 

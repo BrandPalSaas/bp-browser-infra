@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Browser Worker Live View</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        
+        .header {
+            background-color: #2c3e50;
+            color: white;
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 1.5em;
+        }
+        
+        .status-indicator {
+            display: flex;
+            align-items: center;
+        }
+        
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .connected {
+            background-color: #2ecc71;
+        }
+        
+        .connecting {
+            background-color: #f39c12;
+        }
+        
+        .disconnected {
+            background-color: #e74c3c;
+        }
+        
+        .main-content {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            justify-content: center;
+        }
+        
+        .browser-view {
+            flex: 1;
+            max-width: 1200px;
+            position: relative;
+            overflow: hidden;
+            background-color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .browser-container {
+            position: relative;
+            max-width: 100%;
+            max-height: 100%;
+            overflow: hidden;
+        }
+        
+        #browser-screen {
+            display: block;
+            max-width: 100%;
+            max-height: 100vh;
+            object-fit: contain;
+            border: 1px solid #ddd;
+        }
+        
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            z-index: 100;
+        }
+        
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 4px solid white;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .footer {
+            background-color: #f8f9fa;
+            padding: 10px 20px;
+            border-top: 1px solid #ddd;
+            font-size: 0.8em;
+            color: #7f8c8d;
+            text-align: center;
+        }
+        
+        #info-bar {
+            background-color: #f8f9fa;
+            padding: 10px;
+            text-align: center;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .browser-view {
+                padding: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Live Browser View - Worker: <span id="worker-id">{{ worker_id }}</span></h1>
+        <div class="status-indicator">
+            <div id="connection-status" class="status-dot disconnected"></div>
+            <span id="status-text">Disconnected</span>
+        </div>
+    </div>
+    
+    <div id="info-bar">
+        <p>View-only mode: This page displays a live view of the browser worker. Interactive control is not available.</p>
+    </div>
+    
+    <div class="main-content">
+        <div class="browser-view">
+            <div class="browser-container">
+                <img id="browser-screen" src="/static/placeholder.png" alt="Browser Screen">
+                <div id="loading-overlay" class="loading-overlay">
+                    <div class="spinner"></div>
+                    <p id="loading-message">Connecting to worker...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="footer">
+        <p>Connected to worker: <span id="footer-worker-id">{{ worker_id }}</span></p>
+    </div>
+    
+    <script>
+        // Constants and variables
+        const workerId = "{{ worker_id }}";
+        let socket;
+        let isConnected = false;
+        let reconnectAttempts = 0;
+        const MAX_RECONNECT_ATTEMPTS = 5;
+        const RECONNECT_DELAY_MS = 3000;
+        
+        // Elements
+        const browserScreen = document.getElementById('browser-screen');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const loadingMessage = document.getElementById('loading-message');
+        const connectionStatus = document.getElementById('connection-status');
+        const statusText = document.getElementById('status-text');
+        
+        // Function to create and manage WebSocket connection
+        function connectWebSocket() {
+            // Determine if we're connecting to central controller or directly to worker
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.host}/ws/live/${workerId}`;
+            
+            // Connect to WebSocket
+            setConnectionStatus('connecting');
+            loadingMessage.textContent = 'Connecting to worker...';
+            
+            socket = new WebSocket(wsUrl);
+            
+            socket.onopen = function() {
+                console.log('WebSocket connected');
+                isConnected = true;
+                reconnectAttempts = 0;
+                setConnectionStatus('connected');
+                loadingOverlay.style.display = 'none';
+            };
+            
+            socket.onclose = function(event) {
+                console.log('WebSocket disconnected', event);
+                isConnected = false;
+                setConnectionStatus('disconnected');
+                
+                // Attempt to reconnect if not manually closed
+                if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                    reconnectAttempts++;
+                    loadingMessage.textContent = `Connection lost. Reconnecting (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`;
+                    loadingOverlay.style.display = 'flex';
+                    setTimeout(connectWebSocket, RECONNECT_DELAY_MS);
+                } else {
+                    loadingMessage.textContent = 'Connection lost. Please refresh the page to reconnect.';
+                    loadingOverlay.style.display = 'flex';
+                }
+            };
+            
+            socket.onerror = function(error) {
+                console.error('WebSocket error:', error);
+            };
+            
+            socket.onmessage = function(event) {
+                if (event.data instanceof Blob) {
+                    // Handle binary data (screenshot)
+                    const url = URL.createObjectURL(event.data);
+                    browserScreen.src = url;
+                    
+                    // Clean up the old URL to avoid memory leaks
+                    const oldUrl = browserScreen.dataset.blobUrl;
+                    if (oldUrl) {
+                        URL.revokeObjectURL(oldUrl);
+                    }
+                    browserScreen.dataset.blobUrl = url;
+                } else {
+                    // Handle JSON messages
+                    try {
+                        const message = JSON.parse(event.data);
+                        console.log('Received message:', message);
+                        
+                        // We just log messages in view-only mode
+                        if (message.type === 'view_only_mode') {
+                            console.log('View only mode:', message.message);
+                        }
+                    } catch (e) {
+                        console.error('Error parsing message:', e);
+                    }
+                }
+            };
+        }
+        
+        // Update connection status UI
+        function setConnectionStatus(status) {
+            connectionStatus.className = 'status-dot ' + status;
+            switch (status) {
+                case 'connected':
+                    statusText.textContent = 'Connected';
+                    break;
+                case 'connecting':
+                    statusText.textContent = 'Connecting...';
+                    break;
+                case 'disconnected':
+                    statusText.textContent = 'Disconnected';
+                    break;
+            }
+        }
+        
+        // Initialize connection on page load
+        window.addEventListener('load', function() {
+            // Connect WebSocket
+            connectWebSocket();
+            
+            // Send a heartbeat every 30 seconds to keep the connection alive
+            setInterval(function() {
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({ type: "heartbeat" }));
+                }
+            }, 30000);
+        });
+    </script>
+</body>
+</html> 

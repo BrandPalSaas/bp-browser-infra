@@ -14,7 +14,10 @@ log = structlog.get_logger(__name__)
 # Define a callback type for task status listeners (task_id, status, response)
 TaskStatusCallback = Callable[[str, BrowserTaskStatus, str], None]
 
+# Singleton TaskManager, use get_task_manager() to get the TaskManager instance instead of TaskManager() directly 
 class TaskManager:
+    """The task manager manages the tasks and results in Redis."""
+    
     def __init__(self):
         # Redis configuration
         self.redis_host = os.getenv("REDIS_HOST", "localhost")
@@ -227,7 +230,7 @@ class TaskManager:
             log.exception("Failed to create consumer group", error=str(e), exc_info=True)
             return False
     
-    async def read_next_task(self, consumer_name, block_ms=2000) -> tuple[str, TaskEntry] | None:
+    async def read_next_task(self, consumer_name: str, block_ms=2000) -> tuple[str, TaskEntry] | None:
         """
         Read the next task from the Redis stream.
         
@@ -361,15 +364,26 @@ class TaskManager:
                         task_id=task_id)
             return False
 
-# Function to provide TaskManager as a dependency
+
+# TaskManager Singleton
+_task_manager = None
+
+# Use get_task_manager() to get the TaskManager instance instead of TaskManager() directly 
+# This ensures that the TaskManager instance is a singleton
 async def get_task_manager():
     """Dependency function to get the TaskManager instance."""
-    manager = TaskManager()
-    await manager.initialize()
-    log.info("Task manager initialized successfully")
-    try:
-        yield manager
-    finally:
-        # Clean up if needed
-        if manager.redis:
-            await manager.redis.close() 
+    global _task_manager
+    if _task_manager is None:
+        _task_manager = TaskManager()
+        if not await _task_manager.initialize():
+            raise Exception("Failed to initialize task manager")
+        log.info("Task manager initialized successfully")
+    return _task_manager
+
+# Add a shutdown function for cleanup
+async def shutdown_task_manager():
+    """Clean up the task manager when the application shuts down."""
+    global _task_manager
+    if _task_manager and _task_manager.redis:
+        await _task_manager.redis.close()
+        _task_manager = None 
