@@ -13,7 +13,10 @@ log = structlog.get_logger(__name__)
 
 # Define a callback type for task status listeners (worker_id, task_id, status, response)
 TaskStatusCallback = Callable[[str, str, BrowserTaskStatus, str], None]
+from dotenv import load_dotenv
 
+# 加载 .env 文件
+load_dotenv()
 # Singleton TaskManager, use get_task_manager() to get the TaskManager instance instead of TaskManager() directly 
 class TaskManager:
     """The task manager manages the tasks and results in Redis."""
