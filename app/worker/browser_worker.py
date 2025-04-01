@@ -43,7 +43,7 @@ class BrowserWorker:
         """Initialize the worker and connect to Redis."""
         try:
             log.info("Initializing browser", name=self.id)
-            self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True))
+            self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True,chrome_instance_path='C:\Program Files\Google\Chrome\Application\chrome.exe'))
             log.info("Browser initialized and ready")
             return True
         except Exception as e:
