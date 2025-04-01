@@ -10,13 +10,23 @@ import string
 import traceback
 from typing import Optional
 
+from browser_use.browser.context import BrowserContextConfig
+
 from app.common.models import BrowserTaskStatus, TaskEntry, RawResponse
 from app.common.task_manager import get_task_manager
-from app.common.constants import TASK_RESULTS_DIR
+from app.common.constants import TASK_RESULTS_DIR, COOKIES_USERNAME
+from app.login.tts import TTSLoginManager
 from dotenv import load_dotenv
+from lmnr import Laminar, Instruments
+
 load_dotenv()
 
 log = structlog.get_logger(__name__)
+
+Laminar.initialize(
+    project_api_key=os.getenv("LMNR_PROJECT_API_KEY"),
+    instruments={Instruments.BROWSER_USE, Instruments.OPENAI, Instruments.REDIS}
+)
 
 # BrowserWorker is a singleton, use get_browser_worker() to get the BrowserWorker instance instead of BrowserWorker() directly 
 # This ensures that the BrowserWorker instance is a singleton
@@ -30,6 +40,9 @@ class BrowserWorker:
         
         random_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
         self._worker_id = f"worker-{socket.gethostname()}-{random_id}"
+        
+        self._login_manager = TTSLoginManager()
+        self._cookies_file = None
 
     @property
     def id(self) -> str:
@@ -43,7 +56,14 @@ class BrowserWorker:
         """Initialize the worker and connect to Redis."""
         try:
             log.info("Initializing browser", name=self.id)
-            self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True))
+            self._cookies_file = await self._login_manager.save_login_cookies_to_tmp_file(COOKIES_USERNAME)
+            if self._cookies_file:
+                log.info("Using cookies file", cookies_file=self._cookies_file)
+                context_config = BrowserContextConfig(cookies_file=self._cookies_file)
+                self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True, new_context_config=context_config))
+            else:
+                self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True))
+
             log.info("Browser initialized and ready")
             return True
         except Exception as e:
@@ -75,7 +95,7 @@ class BrowserWorker:
             agent = Agent(
                 browser=self._browser,
                 task=entry.request.task_description,
-                llm=ChatOpenAI(model="gpt-4o"),
+                llm=ChatOpenAI(model="gpt-4o-mini"),
                 generate_gif=gif_path
             )
             
