@@ -12,9 +12,9 @@ from typing import Optional
 
 from browser_use.browser.context import BrowserContextConfig
 
-from app.common.models import BrowserTaskStatus, TaskEntry, RawResponse
+from app.models import BrowserTaskStatus, TaskEntry, RawResponse, TTShop
 from app.common.task_manager import get_task_manager
-from app.common.constants import TASK_RESULTS_DIR, COOKIES_USERNAME
+from app.common.constants import TASK_RESULTS_DIR
 from app.login.tts import TTSLoginManager
 from dotenv import load_dotenv
 from lmnr import Laminar, Instruments
@@ -33,16 +33,18 @@ Laminar.initialize(
 class BrowserWorker:
     """The browser worker processes browser automation tasks"""
     
-    def __init__(self):
-        """Initialize the worker."""
+    def __init__(self, shop: TTShop):
+        """Initialize the worker, only work for this shop"""
         self._browser = None
         self._running = True
+        self._shop = shop
         
         random_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
         self._worker_id = f"worker-{socket.gethostname()}-{random_id}"
         
         self._login_manager = TTSLoginManager()
         self._cookies_file = None
+        self._created_consumer_groups = set()
 
     @property
     def id(self) -> str:
@@ -55,10 +57,10 @@ class BrowserWorker:
     async def initialize(self):
         """Initialize the worker and connect to Redis."""
         try:
-            log.info("Initializing browser", name=self.id)
-            self._cookies_file = await self._login_manager.save_login_cookies_to_tmp_file(COOKIES_USERNAME)
+            log.info("Initializing browser", name=self.id, shop=str(self._shop))
+            self._cookies_file = await self._login_manager.save_login_cookies_to_tmp_file(self._shop)
             if self._cookies_file:
-                log.info("Using cookies file", cookies_file=self._cookies_file)
+                log.info("Using cookies file", cookies_file=self._cookies_file, shop=str(self._shop))
                 context_config = BrowserContextConfig(cookies_file=self._cookies_file)
                 self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True, new_context_config=context_config))
             else:
@@ -146,8 +148,12 @@ class BrowserWorker:
         """Read tasks from Redis stream and process them."""
         # Ensure consumer group exists
         task_manager = await get_task_manager()
-        await task_manager.create_consumer_group()
-        
+
+        task_queue_name = self._shop.task_queue_name()
+        if task_queue_name not in self._created_consumer_groups:
+            await task_manager.create_consumer_group(task_queue_name)
+            self._created_consumer_groups.add(task_queue_name)
+
         while self._running:
             try:
                 # This claims the message but doesn't acknowledge it yet
@@ -158,12 +164,12 @@ class BrowserWorker:
                 
                 message_id, entry = task_data
                 log_ctx = log.bind(task_id=entry.task_id)
-                log_ctx.info("Received task", message_id=message_id)
+                log_ctx.info("Received task", message_id=message_id, shop=str(self._shop))
                 try:
                     process_success = await self.process_task(entry=entry)
                     log_ctx.info("Task processed", process_success=process_success)
                     if process_success:
-                        await task_manager.acknowledge_task(message_id=message_id)
+                        await task_manager.acknowledge_task(message_id=message_id, task_queue_name=task_queue_name)
                 except Exception as e:
                     log_ctx.exception("Error processing task", error=str(e), exc_info=True)
                 
