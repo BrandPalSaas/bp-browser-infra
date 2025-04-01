@@ -5,8 +5,7 @@ import structlog
 from datetime import datetime
 from typing import Dict, Set, Optional, Any, List
 from fastapi import WebSocket
-from app.common.models import WorkerInfo, WebSocketRequest,\
-      WebSocketRequestType, WebSocketResponse, WebSocketResponseType, BrowserTaskStatus, WorkerListPageItem
+from app.models import WorkerInfo, WebSocketRequest, WebSocketRequestType, WebSocketResponse, WebSocketResponseType, BrowserTaskStatus, WorkerListPageItem
       
 
 log = structlog.get_logger(__name__)
