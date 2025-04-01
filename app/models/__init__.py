@@ -1,7 +1,7 @@
 from .api import BrowserTaskRequest, BrowserTaskResponse, BrowserTaskStatus, TTSPlaywrightTaskType, TTSBrowserUseTask
 from .websocket import WebSocketRequest, WebSocketResponse, WebSocketRequestType, WebSocketResponseType
 from .worker import WorkerInfo, WorkerListPageItem, TaskEntry, RawResponse
-from .tts import TTShop
+from .tts import TTShop, TTShopName
 __all__ = [
     'BrowserTaskRequest',
     'BrowserTaskResponse',
@@ -18,4 +18,5 @@ __all__ = [
     'TTSPlaywrightTaskType',
     'TTSBrowserUseTask',
     'TTShop',
+    'TTShopName',
 ] 

@@ -11,7 +11,7 @@ import traceback
 
 from browser_use.browser.context import BrowserContextConfig
 
-from app.models import BrowserTaskStatus, TaskEntry, RawResponse, TTShop, TTSPlaywrightTaskType, TTSBrowserUseTask
+from app.models import BrowserTaskStatus, TaskEntry, RawResponse, TTShop, TTSPlaywrightTaskType, TTSBrowserUseTask, TTShopName, TTShop
 from app.common.task_manager import get_task_manager
 from app.common.constants import TASK_RESULTS_DIR
 from app.login.tts import TTSLoginManager
@@ -21,6 +21,9 @@ from lmnr import Laminar, Instruments
 load_dotenv()
 
 log = structlog.get_logger(__name__)
+
+# TODO: make shop name configurable (e.g load from k8s env)  
+_default_shop = TTShop(shop=TTShopName.ShopperInc, bind_user_email="oceanicnewline@gmail.com")
 
 Laminar.initialize(
     project_api_key=os.getenv("LMNR_PROJECT_API_KEY"),
@@ -161,6 +164,7 @@ class BrowserWorker:
         task_manager = await get_task_manager()
 
         task_queue_name = self._shop.task_queue_name()
+        log.info("Reading tasks from queue", queue_name=task_queue_name)
         if task_queue_name not in self._created_consumer_groups:
             await task_manager.create_consumer_group(task_queue_name)
             self._created_consumer_groups.add(task_queue_name)
@@ -168,7 +172,7 @@ class BrowserWorker:
         while self._running:
             try:
                 # This claims the message but doesn't acknowledge it yet
-                task_data = await task_manager.read_next_task(self.id)
+                task_data = await task_manager.read_next_task(consumer_name=self.id, task_queue_name=task_queue_name)
                 
                 if not task_data:  # No new messages
                     continue
@@ -203,7 +207,7 @@ _browser_worker = None
 async def get_browser_worker():
     global _browser_worker
     if _browser_worker is None:
-        _browser_worker = BrowserWorker()
+        _browser_worker = BrowserWorker(shop=_default_shop)
         if not await _browser_worker.initialize():
             raise Exception("Failed to initialize browser worker")
     return _browser_worker

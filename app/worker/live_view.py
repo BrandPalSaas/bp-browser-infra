@@ -6,7 +6,7 @@ import websockets
 import socket
 from typing import Optional, Dict, Any
 from browser_use import Browser
-from app.common.models import BrowserTaskStatus, WebSocketRequest, WebSocketRequestType, WebSocketResponse, WebSocketResponseType
+from app.models import BrowserTaskStatus, WebSocketRequest, WebSocketRequestType, WebSocketResponse, WebSocketResponseType
 from app.worker.browser_worker import get_browser_worker
 
 log = structlog.get_logger(__name__)
