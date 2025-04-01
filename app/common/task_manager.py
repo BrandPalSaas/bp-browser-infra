@@ -6,9 +6,10 @@ import structlog
 import asyncio
 from datetime import datetime
 from typing import Callable, Dict, Optional, Union, Any, List, Set
+from playwright._impl._api_structures import Cookie
 
 from app.common.models import BrowserTaskRequest, BrowserTaskStatus, BrowserTaskResponse, TaskEntry
-from app.common.constants import BROWSER_TASKS_STREAM, TASK_RESULTS_KEY_SUFFIX, REDIS_RESULT_EXPIRATION_SECONDS
+from app.common.constants import BROWSER_TASKS_STREAM, TASK_RESULTS_KEY_SUFFIX, REDIS_RESULT_EXPIRATION_SECONDS, REDIS_COOKIES_KEY_FMT
 log = structlog.get_logger(__name__)
 
 # Define a callback type for task status listeners (worker_id, task_id, status, response)
@@ -35,6 +36,13 @@ class TaskManager:
         
         # Task status listeners
         self.status_listeners: Set[TaskStatusCallback] = set()
+    
+    async def save_cookies(self, username: str, cookies: List[Cookie]):
+        await self.redis.set(REDIS_COOKIES_KEY_FMT.format(username), json.dumps(cookies))
+    
+    async def get_cookies(self, username: str) -> List[Cookie]:
+        cookies_json = await self.redis.get(REDIS_COOKIES_KEY_FMT.format(username))
+        return json.loads(cookies_json) if cookies_json else []
     
     def add_status_listener(self, callback: TaskStatusCallback) -> None:
         """Register a callback to receive task status updates.

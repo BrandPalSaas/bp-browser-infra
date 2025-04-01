@@ -15,3 +15,4 @@ jinja2==3.1.6
 uvicorn==0.24.0
 playwright==1.51.0
 browser-use==0.1.40
+lmnr==0.5.0
