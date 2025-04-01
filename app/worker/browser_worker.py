@@ -1,5 +1,7 @@
 from browser_use import Agent, BrowserConfig, Browser
+import sys
 import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 import json
 import asyncio
 import structlog
@@ -11,12 +13,13 @@ import traceback
 
 from browser_use.browser.context import BrowserContextConfig
 
-from app.models import BrowserTaskStatus, TaskEntry, RawResponse, TTShop, TTSPlaywrightTaskType, TTSBrowserUseTask, TTShopName, TTShop
+from app.models import BrowserTaskStatus, TaskEntry, RawResponse, TTShop, TTSPlaywrightTaskType,TTSPlaywrightTask, TTSBrowserUseTask, TTShopName, TTShop
 from app.common.task_manager import get_task_manager
 from app.common.constants import TASK_RESULTS_DIR
 from app.login.tts import TTSLoginManager
 from dotenv import load_dotenv
 from lmnr import Laminar, Instruments
+from app.playwright.download_file import download_gmv_csv
 
 load_dotenv()
 
@@ -64,9 +67,9 @@ class BrowserWorker:
             if self._cookies_file:
                 log.info("Using cookies file", cookies_file=self._cookies_file, shop=str(self._shop))
                 context_config = BrowserContextConfig(cookies_file=self._cookies_file)
-                self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True, new_context_config=context_config))
+                self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True, new_context_config=context_config, chrome_instance_path='C:\Program Files\Google\Chrome\Application\chrome.exe'))
             else:
-                self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True))
+                self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True,chrome_instance_path='C:\Program Files\Google\Chrome\Application\chrome.exe'))
 
             log.info("Browser initialized and ready")
             return True
@@ -95,8 +98,10 @@ class BrowserWorker:
             
             if isinstance(entry.request.task, TTSBrowserUseTask):
                 raw_response = await self.process_browser_use_task(log_ctx, task_id, entry.request.task)
-            elif isinstance(entry.request.task, TTSPlaywrightTaskType):
-                raw_response = await self.process_playwright_task(log_ctx, task_id, entry.request.task)
+                
+            elif isinstance(entry.request.task, TTSPlaywrightTask):
+                raw_response = await self.process_playwright_task(log_ctx, task_id, entry.request.task) 
+                
             else:
                 raise ValueError(f"Unknown task type: {type(entry.request.task)}")
             
@@ -152,11 +157,39 @@ class BrowserWorker:
             log_ctx.info("Task completed successfully", result=raw_response)
             return raw_response
 
-    async def process_playwright_task(self, log_ctx: structlog.stdlib.BoundLogger, task_id: str, task: TTSPlaywrightTaskType):
+    async def process_playwright_task(self, log_ctx: structlog.stdlib.BoundLogger, task_id: str, task: TTSPlaywrightTask):
         ## TODO: process playwright task
-        log_ctx.info("Processing playwright task", task_id=task_id, task=task)
-        
-        
+        try:
+            log_ctx.info("Processing playwright task", task_id=task_id, task=task)
+            
+            # 根据 task_type 处理不同的 Playwright 任务
+            if task.task_type == TTSPlaywrightTaskType.DOWNLOAD_GMV_CSV:
+                # 实现下载 GMV CSV 的逻辑
+                download_result= await download_gmv_csv()
+                raw_response = RawResponse(
+                    total_duration_seconds=0.0,
+                    total_input_tokens=0,
+                    num_of_steps=0,
+                    is_successful=True,
+                    has_errors=False,
+                    final_result= download_result
+                )
+                return raw_response
+            else:
+                raise ValueError(f"Unsupported playwright task type: {task.task_type}")
+                
+        except Exception as e:
+            log_ctx.exception("Error processing playwright task", error=str(e))
+            # Remove this line as it's causing the RuntimeError
+            # raise
+            return  RawResponse(
+                total_duration_seconds=0.0,
+                total_input_tokens=0,
+                num_of_steps=0,
+                is_successful=True,
+                has_errors=False,
+                final_result=str(e)
+            )
 
     async def read_tasks(self):
         """Read tasks from Redis stream and process them."""

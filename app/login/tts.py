@@ -32,7 +32,7 @@ class TTSLoginManager:
             await page.click('button#TikTok_Ads_SSO_Login_Btn')
 
             # need this time to enter the confirmation code in browser
-            await asyncio.sleep(60)
+            await asyncio.sleep(100)
 
             # Save browser context
             context_storage = await context.storage_state()
