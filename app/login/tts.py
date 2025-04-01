@@ -4,6 +4,7 @@ import time
 from typing import List
 from playwright._impl._api_structures import Cookie
 from app.common.task_manager import get_task_manager
+from app.models import TTShop
 import json
 import structlog
 import tempfile
@@ -46,12 +47,12 @@ class TTSLoginManager:
         log.info("Successfully saved login cookies for username", username=username)
 
 
-    async def get_login_cookies(self, username: str) -> List[Cookie]:
+    async def get_login_cookies(self, shop: TTShop) -> List[Cookie]:
         task_manager = await get_task_manager()
-        return await task_manager.get_cookies(username)
+        return await task_manager.get_cookies(shop.bind_user_email)
 
-    async def save_login_cookies_to_tmp_file(self, username: str) -> Optional[str]:
-        cookies = await self.get_login_cookies(username)
+    async def save_login_cookies_to_tmp_file(self, shop: TTShop) -> Optional[str]:
+        cookies = await self.get_login_cookies(shop)
         if cookies:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode='w') as f:
                 json.dump(cookies, f)

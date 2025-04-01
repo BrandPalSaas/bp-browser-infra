@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.common.models import BrowserTaskRequest, BrowserTaskResponse, WebSocketRequest, WebSocketRequestType
+from app.models import BrowserTaskRequest, BrowserTaskResponse, WebSocketRequest, WebSocketRequestType
 from app.common.task_manager import get_task_manager, TaskManager
 from app.controller.worker_manager import get_worker_manager, WorkerManager
 
