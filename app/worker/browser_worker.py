@@ -8,11 +8,10 @@ from langchain_openai import ChatOpenAI
 import random
 import string
 import traceback
-from typing import Optional
 
 from browser_use.browser.context import BrowserContextConfig
 
-from app.models import BrowserTaskStatus, TaskEntry, RawResponse, TTShop
+from app.models import BrowserTaskStatus, TaskEntry, RawResponse, TTShop, TTSPlaywrightTaskType, TTSBrowserUseTask
 from app.common.task_manager import get_task_manager
 from app.common.constants import TASK_RESULTS_DIR
 from app.login.tts import TTSLoginManager
@@ -73,10 +72,8 @@ class BrowserWorker:
             return False
     
     async def process_task(self, entry: TaskEntry) -> bool:
-        
         task_id = entry.task_id
         log_ctx = log.bind(task_id=task_id)
-        gif_path = f"{TASK_RESULTS_DIR}/{task_id}.gif"
         task_manager = await get_task_manager()
 
         try:
@@ -93,24 +90,13 @@ class BrowserWorker:
                 status=BrowserTaskStatus.RUNNING
             )
             
-            # Initialize the BrowserUse Agent
-            agent = Agent(
-                browser=self._browser,
-                task=entry.request.task_description,
-                llm=ChatOpenAI(model="gpt-4o-mini"),
-                generate_gif=gif_path
-            )
+            if isinstance(entry.request.task, TTSBrowserUseTask):
+                raw_response = await self.process_browser_use_task(log_ctx, task_id, entry.request.task)
+            elif isinstance(entry.request.task, TTSPlaywrightTaskType):
+                raw_response = await self.process_playwright_task(log_ctx, task_id, entry.request.task)
+            else:
+                raise ValueError(f"Unknown task type: {type(entry.request.task)}")
             
-            # Process the task
-            result = await agent.run()
-            raw_response = RawResponse(
-                total_duration_seconds=result.total_duration_seconds(),
-                total_input_tokens=result.total_input_tokens(),
-                num_of_steps=result.number_of_steps(),
-                is_successful=result.is_successful(),
-                has_errors=result.has_errors(),
-                final_result=result.final_result())
-
             log_ctx.info("Task completed successfully", result=raw_response)
             
             # Update task result
@@ -118,7 +104,7 @@ class BrowserWorker:
                 worker_id=self.id,
                 task_id=task_id, 
                 status=BrowserTaskStatus.COMPLETED, 
-                response=json.dumps(raw_response.model_dump())
+                response=json.dumps(raw_response.model_dump() if raw_response else "")
             )
                 
             return True
@@ -138,11 +124,36 @@ class BrowserWorker:
                 response=json.dumps(error_response)
             )
             return False
-        finally:
-            if os.path.exists(gif_path):
-                log_ctx.info("TODO: Uploading gif files", gif_path=gif_path)
-                # TODO: upload gif to s3
-                # os.remove(gif_path)
+
+
+    async def process_browser_use_task(self, log_ctx: structlog.stdlib.BoundLogger, task_id: str, task: TTSBrowserUseTask) -> RawResponse:
+            gif_path = f"{TASK_RESULTS_DIR}/{task_id}.gif"
+            # Initialize the BrowserUse Agent
+            agent = Agent(
+                browser=self._browser,
+                task=task.description,
+                llm=ChatOpenAI(model="gpt-4o-mini"),
+                generate_gif=gif_path
+            )
+            
+            # Process the task
+            result = await agent.run()
+            raw_response = RawResponse(
+                total_duration_seconds=result.total_duration_seconds(),
+                total_input_tokens=result.total_input_tokens(),
+                num_of_steps=result.number_of_steps(),
+                is_successful=result.is_successful(),
+                has_errors=result.has_errors(),
+                final_result=result.final_result())
+
+            log_ctx.info("Task completed successfully", result=raw_response)
+            return raw_response
+
+    async def process_playwright_task(self, log_ctx: structlog.stdlib.BoundLogger, task_id: str, task: TTSPlaywrightTaskType):
+        ## TODO: process playwright task
+        log_ctx.info("Processing playwright task", task_id=task_id, task=task)
+        
+        
 
     async def read_tasks(self):
         """Read tasks from Redis stream and process them."""
