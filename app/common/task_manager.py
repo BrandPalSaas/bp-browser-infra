@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Callable, Dict, Optional, Union, Any, List, Set
 from playwright._impl._api_structures import Cookie
 
-from app.common.models import BrowserTaskRequest, BrowserTaskStatus, BrowserTaskResponse, TaskEntry
+from app.models import BrowserTaskRequest, BrowserTaskStatus, BrowserTaskResponse, TaskEntry
 from app.common.constants import BROWSER_TASKS_STREAM, TASK_RESULTS_KEY_SUFFIX, REDIS_RESULT_EXPIRATION_SECONDS, REDIS_COOKIES_KEY_FMT
 log = structlog.get_logger(__name__)
 
@@ -26,7 +26,7 @@ class TaskManager:
         self.redis_password = os.getenv("REDIS_PASSWORD", "")
         self.redis_db = int(os.getenv("REDIS_DB", 0))
         self.redis_ssl = os.getenv("REDIS_SSL", "false").lower() == "true"
-        self.task_stream = BROWSER_TASKS_STREAM
+        # self.task_stream = BROWSER_TASKS_STREAM
         self.results_key_suffix = TASK_RESULTS_KEY_SUFFIX
         self.group_name = "browser_workers"
         self.redis = None
@@ -165,9 +165,9 @@ class TaskManager:
             # Add to task stream
             log_ctx.info("Adding task to Redis stream", task_id=task_id, task_data=task_data)
             await self.redis.xadd(
-                name=self.task_stream,
+                name=task_data.task_queue_name(), # tts task has a unique task queue for each shop
                 fields=redis_task,
-                maxlen=100000,  # Limit stream length
+                maxlen=10000,  # Limit stream length
                 approximate=True
             )
             return initial_result
@@ -211,7 +211,7 @@ class TaskManager:
             log_ctx.exception("Error getting result", error=str(e), exc_info=True)
             return BrowserTaskResponse(task_id=task_id, task_status=BrowserTaskStatus.FAILED, task_response=f"Error getting result: {str(e)}")
     
-    async def create_consumer_group(self) -> bool:
+    async def create_consumer_group(self, task_queue_name: str) -> bool:
         """Create consumer group for task processing if it doesn't exist."""
         try:
             if not await self.ensure_redis_connection():
@@ -220,12 +220,12 @@ class TaskManager:
             # Create consumer group if it doesn't exist
             try:
                 await self.redis.xgroup_create(
-                    name=self.task_stream,
+                    name=task_queue_name,
                     groupname=self.group_name,
                     mkstream=True,
                     id='0'  # Start from beginning
                 )
-                log.info("Created consumer group", group=self.group_name, stream=self.task_stream)
+                log.info("Created consumer group", group=self.group_name, stream=task_queue_name)
             except redis.ResponseError as e:
                 if "BUSYGROUP" in str(e):
                     # Group already exists
@@ -238,12 +238,13 @@ class TaskManager:
             log.exception("Failed to create consumer group", error=str(e), exc_info=True)
             return False
     
-    async def read_next_task(self, consumer_name: str, block_ms=2000) -> tuple[str, TaskEntry] | None:
+    async def read_next_task(self, consumer_name: str, task_queue_name: str, block_ms=2000) -> tuple[str, TaskEntry] | None:
         """
         Read the next task from the Redis stream.
         
         Args:
             consumer_name: The name of the consumer (usually worker ID)
+            task_queue_name: The name of the task queue (by tts shop name)
             block_ms: How long to block waiting for a new message (in milliseconds)
             
         Returns:
@@ -257,7 +258,7 @@ class TaskManager:
             tasks = await self.redis.xreadgroup(
                 groupname=self.group_name,
                 consumername=consumer_name,
-                streams={self.task_stream: '>'},
+                streams={task_queue_name: '>'},
                 count=1,
                 block=block_ms
             )
@@ -302,7 +303,7 @@ class TaskManager:
             log.exception("Error reading task", error=str(e), exc_info=True)
             await asyncio.sleep(1)  # Avoid tight loop on persistent errors
     
-    async def acknowledge_task(self, message_id: str):
+    async def acknowledge_task(self, message_id: str, task_queue_name: str):
         """
         Acknowledge that a task has been processed.
         """
@@ -310,7 +311,7 @@ class TaskManager:
             if not await self.ensure_redis_connection():
                 return
                 
-            await self.redis.xack(self.task_stream, self.group_name, message_id)
+            await self.redis.xack(task_queue_name, self.group_name, message_id)
             log.info("Task acknowledged", message_id=message_id)
         except Exception as e:
             log.exception("Error acknowledging task", error=str(e), exc_info=True, message_id=message_id)

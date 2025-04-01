@@ -10,6 +10,5 @@ TASK_RESULTS_KEY_SUFFIX = "result"
 # Redis result expiration seconds
 REDIS_RESULT_EXPIRATION_SECONDS = 3600 * 24 * 7 # 7 days
 
+# Redis cookies key format
 REDIS_COOKIES_KEY_FMT = "cookies:{}"
-
-COOKIES_USERNAME = "oceanicnewline@gmail.com"
