@@ -1,7 +1,5 @@
 import asyncio
 from playwright.async_api import async_playwright, TimeoutError
-import asyncio
-from playwright.async_api import async_playwright, TimeoutError
 import subprocess
 import time
 
@@ -17,28 +15,26 @@ async def connect_to_browser(p, max_retries=5, delay=1):
         except Exception as e:
             if attempt == max_retries - 1:
                 raise
-            print(f"Connection attempt {attempt + 1} failed, retrying in {delay} seconds...")
+            print(f"连接第{attempt + 1}次失败,  {delay}秒后重试...")
             await asyncio.sleep(delay)
 
 async def download_gmv_csv():
     """下载 GMV CSV 文件的主逻辑"""
     async with async_playwright() as p:
-        print('Launching Chrome browser...')
+        print('连接浏览器...')
         subprocess.Popen(f"{chrome_path} {debugging_port}")
         
         try:
-            print('Connecting to browser...')
+            print('连接浏览器...')
             browser = await connect_to_browser(p)
             context = browser.contexts[0] if browser.contexts else await browser.new_context()
             page = context.pages[0] if context.pages else await context.new_page()
-
-            # ... rest of the existing download logic ...
             
         except TimeoutError:
-            print("Connection timed out. Please ensure Chrome is running with remote debugging enabled.")
+            print("连接超时")
             return {'status': 'error', 'message': 'Connection timeout'}
         except Exception as e:
-            print(f"An error occurred: {str(e)}")
+            print(f"错误: {str(e)}")
             return {'status': 'error', 'message': str(e)}
 
         browser = await p.chromium.connect_over_cdp("http://127.0.0.1:9222")
@@ -53,7 +49,7 @@ async def download_gmv_csv():
         download_future = asyncio.Future()
         
         def handle_download(download):
-            print(f"Download started: {download.url}")
+            print(f"开始下载: {download.url}")
             # 设置 Future 的结果
             download_future.set_result({
                 'status': 'success',
@@ -71,19 +67,38 @@ async def download_gmv_csv():
         await asyncio.sleep(6)
         print('打开网页！')
         # await page.click('.theme-arco-picker')
-        await page.evaluate(" document.querySelector('.theme-arco-picker').click()")
+        
+        try:
+            if not await click_btn_dom(page,"document.querySelector('.theme-arco-picker').click()"):
+                return {"status": "error", "message": "无法找到时间组件"}
+        except Exception as e:
+            return {"status": "error", "message": f"点击时间组件失败: {str(e)}"}
         print('点击时间组件')
+        
         await asyncio.sleep(2)
         await page.click("text=Last 28 days")
         print('选择最近的28天选项')
+        
         await asyncio.sleep(10)
         await page.click("text=Affiliate accounts")
         print('选择tab项')
+        
         await asyncio.sleep(8)
-        await page.evaluate("document.querySelectorAll('.theme-m4b-button')[1].click()")
-        await asyncio.sleep(0.5)
-        await page.evaluate("document.querySelector('.RecordItem__StyledButton-sc-a4nsjm-0').click()")
-        print('点击下载按钮')
+        try:
+            if not await click_btn_dom(page,"document.querySelectorAll('.theme-m4b-button')[1].click()"):
+                return {"status": "error", "message": "无法找到时间组件"}
+        except Exception as e:
+            print('点击下载按钮报错')
+            return {"status": "error", "message": str(e)}
+        
+        # await page.evaluate("document.querySelector('.RecordItem__StyledButton-sc-a4nsjm-0').click()")
+        try:
+            button = page.locator('.RecordItem__StyledButton-sc-a4nsjm-0')
+            await button.wait_for(state='visible', timeout=1100)  # 10秒超时
+            await button.click()
+            print('点击下载按钮')
+        except Exception as e:
+            return {"status": "success", "message": '下载成功'}
         
         # 等待下载开始并返回结果
         return await download_future
@@ -91,6 +106,23 @@ async def download_gmv_csv():
 async def main():
     """主函数，用于测试"""
     await download_gmv_csv()
+    
+#点击时间组件
+async def click_btn_dom(page, evaluateVal, max_retries=3, initial_timeout=2000):
+    """改进后的点击时间组件逻辑"""
+    for attempt in range(max_retries):
+        try:
+            # 每次重试增加等待时间
+            timeout = initial_timeout * (attempt + 1)
+            await page.wait_for_selector('.theme-arco-picker', state='visible', timeout=timeout)
+            await page.evaluate(evaluateVal)
+            print(f'第 {attempt + 1} 次尝试，点击时间组件成功')
+            return True
+        except Exception as e:
+            print(f'第 {attempt + 1} 次尝试失败: {str(e)}')
+            if attempt < max_retries - 1:
+                await asyncio.sleep(1)  # 重试前等待1秒
+    return False
 
 if __name__ == "__main__":
     asyncio.run(main())
