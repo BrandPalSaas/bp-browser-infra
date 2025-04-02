@@ -4,6 +4,7 @@ import asyncio
 import subprocess
 import time
 
+# chrome_path = r'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 chrome_path = r'"C:\Program Files\Google\Chrome\Application\chrome.exe"'
 debugging_port = "--remote-debugging-port=9222"
 
@@ -24,7 +25,7 @@ async def download_gmv_csv():
     async with async_playwright() as p:
         print('Launching Chrome browser...')
         subprocess.Popen(f"{chrome_path} {debugging_port}")
-        
+        # subprocess.Popen([chrome_path,debugging_port])
         try:
             print('Connecting to browser...')
             browser = await connect_to_browser(p)
@@ -50,16 +51,25 @@ async def download_gmv_csv():
       
         # 创建 Future 对象用于等待下载开始
         download_future = asyncio.Future()
-        
+
         def handle_download(download):
             print(f"Download started: {download.url}")
+
+            # 获取下载文件的路径
+            download_path = download.path()  # 获取文件的下载路径
+            download_filename = download.suggested_filename()  # 获取下载的文件名
+            # 拼接文件路径和文件名
+            full_file_path = f"{download_path}/{download_filename}"
+            print(f"Download file path: {download_path}")
+            print(f"Download file name: {download_filename}")
+
             # 设置 Future 的结果
             download_future.set_result({
                 'status': 'success',
-                'download_url': download.url
+                'download_url': download.url,
+                'full_file_path': full_file_path  # 返回完整的文件路径（路径 + 文件名）
             })
-            browser.close()
-        
+
         # 设置下载事件监听器
         page.on('download', handle_download)
         
