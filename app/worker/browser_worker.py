@@ -26,7 +26,7 @@ load_dotenv()
 log = structlog.get_logger(__name__)
 
 # TODO: make shop name configurable (e.g load from k8s env)  
-_default_shop = TTShop(shop=TTShopName.ShopperInc, bind_user_email="dengjie200@gmail.com")
+_default_shop = TTShop(shop=TTShopName.ShopperInc, bind_user_email="oceanicnewline@gmail.com")
 
 Laminar.initialize(
     project_api_key=os.getenv("LMNR_PROJECT_API_KEY"),
@@ -67,9 +67,9 @@ class BrowserWorker:
             if self._cookies_file:
                 log.info("Using cookies file", cookies_file=self._cookies_file, shop=str(self._shop))
                 context_config = BrowserContextConfig(cookies_file=self._cookies_file)
-                self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True, new_context_config=context_config, ))
+                self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True, new_context_config=context_config, chrome_instance_path='C:\Program Files\Google\Chrome\Application\chrome.exe'))
             else:
-                self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True,))
+                self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True,chrome_instance_path='C:\Program Files\Google\Chrome\Application\chrome.exe'))
 
             log.info("Browser initialized and ready")
             return True
@@ -165,51 +165,17 @@ class BrowserWorker:
             # 根据 task_type 处理不同的 Playwright 任务
             if task.task_type == TTSPlaywrightTaskType.DOWNLOAD_GMV_CSV:
                 # 实现下载 GMV CSV 的逻辑
-                self._cookies_file = await self._login_manager.save_login_cookies_to_tmp_file(self._shop)
-                if self._cookies_file:
-                    # 解析 cookies 文件并回填到浏览器
-                    with open(self._cookies_file, 'r') as f:
-                        cookies = json.load(f)
-                    
-                    playwright_browser = await self._browser.get_playwright_browser()
-                    context = await playwright_browser.new_context()
-                    await context.add_cookies(cookies)  # 将 cookies 添加到浏览器上下文
-                    page = await context.new_page()
-                    
-                    download_result= await download_gmv_csv(page)
-                    print('文件下载结果',download_result)
-                    if download_result.get('status') == 'success':  # 
-                        result_str = json.dumps(download_result, ensure_ascii=False)
-                        raw_response = RawResponse(
-                            total_duration_seconds=0.0,
-                            total_input_tokens=0,
-                            num_of_steps=0,
-                            is_successful=True,
-                            has_errors=False,
-                            final_result= result_str
-                        )
-                        # playwright_browser.close()
-                        return raw_response
-                    else:
-                        raw_response = RawResponse(
-                            total_duration_seconds=0.0,
-                            total_input_tokens=0,
-                            num_of_steps=0,
-                            is_successful=True,
-                            has_errors=False,
-                            final_result= '下载失败'
-                        )
-                        return raw_response
-                else:
-                    print('浏览器未登录！')
-                    return  RawResponse(
-                        total_duration_seconds=0.0,
-                        total_input_tokens=0,
-                        num_of_steps=0,
-                        is_successful=True,
-                        has_errors=False,
-                        final_result= '浏览器未登录'
-                    )
+                download_result= await download_gmv_csv()
+                print('下载成功', download_result)
+                raw_response = RawResponse(
+                    total_duration_seconds=0.0,
+                    total_input_tokens=0,
+                    num_of_steps=0,
+                    is_successful=True,
+                    has_errors=False,
+                    final_result= '失败'
+                )
+                return raw_response
             else:
                 raise ValueError(f"Unsupported playwright task type: {task.task_type}")
                 
@@ -265,6 +231,7 @@ class BrowserWorker:
         self._running = False
         await self._browser.close()
         log.info("Browser worker shutdown complete")
+
 
 # BrowserWorker Singleton
 _browser_worker = None
