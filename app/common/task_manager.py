@@ -4,15 +4,12 @@ import json
 import redis.asyncio as redis
 import structlog
 import asyncio
-import aiomysql
 from datetime import datetime
 from typing import Callable, Dict, Optional, Union, Any, List, Set
 from playwright._impl._api_structures import Cookie
 
 from app.models import BrowserTaskRequest, BrowserTaskStatus, BrowserTaskResponse, TaskEntry
-from app.common.constants import BROWSER_TASKS_STREAM, TASK_RESULTS_KEY_SUFFIX, REDIS_RESULT_EXPIRATION_SECONDS, \
-    REDIS_COOKIES_KEY_FMT
-
+from app.common.constants import BROWSER_TASKS_STREAM, TASK_RESULTS_KEY_SUFFIX, REDIS_RESULT_EXPIRATION_SECONDS, REDIS_COOKIES_KEY_FMT
 log = structlog.get_logger(__name__)
 
 # Define a callback type for task status listeners (worker_id, task_id, status, response)
@@ -21,12 +18,10 @@ from dotenv import load_dotenv
 
 # 加载 .env 文件
 load_dotenv()
-
-
-# Singleton TaskManager, use get_task_manager() to get the TaskManager instance instead of TaskManager() directly
+# Singleton TaskManager, use get_task_manager() to get the TaskManager instance instead of TaskManager() directly 
 class TaskManager:
     """The task manager manages the tasks and results in Redis."""
-
+    
     def __init__(self):
         # Redis configuration
         self.redis_host = os.getenv("REDIS_HOST", "localhost")
@@ -38,48 +33,40 @@ class TaskManager:
         self.results_key_suffix = TASK_RESULTS_KEY_SUFFIX
         self.group_name = "browser_workers"
         self.redis = None
-
-        # MySQL configuration
-        self.mysql_host = os.getenv("MYSQL_HOST", "localhost")
-        self.mysql_user = os.getenv("MYSQL_USER", "root")
-        self.mysql_password = os.getenv("MYSQL_PASSWORD", "")
-        self.mysql_db = os.getenv("MYSQL_DB", "aa-mainbiz-dev")
-        self.mysql_pool = None  # Initialize MySQL pool
-
+        
         # Task status listeners
         self.status_listeners: Set[TaskStatusCallback] = set()
-
+    
     async def save_cookies(self, username: str, cookies: List[Cookie]):
         await self.redis.set(REDIS_COOKIES_KEY_FMT.format(username), json.dumps(cookies))
-
+    
     async def get_cookies(self, username: str) -> List[Cookie]:
         cookies_json = await self.redis.get(REDIS_COOKIES_KEY_FMT.format(username))
         return json.loads(cookies_json) if cookies_json else []
-
+    
     def add_status_listener(self, callback: TaskStatusCallback) -> None:
         """Register a callback to receive task status updates.
-
+        
         Args:
             callback: A function that will be called when task status changes
                 with parameters (task_id, status, result_data)
         """
         self.status_listeners.add(callback)
         log.info("Task status listener registered")
-
+    
     def remove_status_listener(self, callback: TaskStatusCallback) -> None:
         """Remove a previously registered callback.
-
+        
         Args:
             callback: The callback function to remove
         """
         if callback in self.status_listeners:
             self.status_listeners.remove(callback)
             log.info("Task status listener removed")
-
-    def _notify_listeners(self, worker_id: str, task_id: str, status: BrowserTaskStatus,
-                          result_data: str = None) -> None:
+    
+    def _notify_listeners(self, worker_id: str, task_id: str, status: BrowserTaskStatus, result_data: str = None) -> None:
         """Notify all registered listeners about a task status change.
-
+        
         Args:
             task_id: The ID of the task
             status: The status of the task (BrowserTaskStatus enum)
@@ -93,43 +80,36 @@ class TaskManager:
 
     async def initialize(self):
         """Initialize the task manager asynchronously."""
-        # Connect to Redis and MySQL
-        redis_connected = await self.connect_to_redis()
-        mysql_connected = await self.connect_to_mysql()
-
-        if not redis_connected:
+        # Connect to Redis
+        if not await self.connect_to_redis():
             log.error("Failed to connect to Redis during initialization")
             return False
-        if not mysql_connected:
-            log.error("Failed to connect to MySQL during initialization")
-            return False
-
         return True
-
+    
     async def connect_to_redis(self):
         """Connect to Redis."""
         try:
-            log.info("Connecting to Redis",
-                     host=self.redis_host,
+            log.info("Connecting to Redis", 
+                     host=self.redis_host, 
                      port=self.redis_port,
                      ssl=self.redis_ssl)
-
+            
             # Connection parameters
             connection_params = {
-                "host": self.redis_host,
+                "host": self.redis_host, 
                 "port": self.redis_port,
                 "password": self.redis_password if self.redis_password else None,
                 "ssl": self.redis_ssl,
                 "db": self.redis_db
             }
-
+            
             # Some Redis clients use ssl_cert_reqs instead of ssl_context
             if self.redis_ssl:
                 connection_params["ssl_cert_reqs"] = None
-
+            
             # Connect to Redis
             self.redis = redis.Redis(**connection_params)
-
+            
             # Check connection
             await self.redis.ping()
             log.info("Connected to Redis successfully")
@@ -137,32 +117,6 @@ class TaskManager:
         except Exception as e:
             log.exception("Failed to connect to Redis", error=str(e), exc_info=True)
             return False
-
-    async def connect_to_mysql(self):
-        """MySQL connection """
-        try:
-            log.info(" Connected to MySQL ", host=self.mysql_host, user=self.mysql_user, database=self.mysql_db)
-            self.mysql_pool = await aiomysql.create_pool(
-                host=self.mysql_host,
-                port=3306,
-                user=self.mysql_user,
-                password=self.mysql_password,
-                db=self.mysql_db,
-                autocommit=True
-            )
-
-            log.info("Connected to MySQL successfully")
-            return True
-        except Exception as e:
-            log.exception("Failed to connect to MySQL", error=str(e), exc_info=True)
-            return False
-
-    async def close_mysql_connection(self):
-        """关闭 MySQL 连接池。"""
-        if self.mysql_pool:
-            self.mysql_pool.close()
-            await self.mysql_pool.wait_closed()
-            log.info("MySQL connection pool closed")
 
     async def ensure_redis_connection(self) -> bool:
         """Reconnect to Redis if needed."""
@@ -179,26 +133,25 @@ class TaskManager:
     async def submit_task(self, task_data: BrowserTaskRequest) -> BrowserTaskResponse:
         """
         Submit a task to the Redis queue.
-
+        
         Args:
             task_data: The task data to submit
-
+            
         Returns:
             A dictionary with task_id and status
         """
         # Create a task_id with mmddhhmmss and uuid suffix
         task_id = f'task-{datetime.now().strftime("%m%d-%H%M")}-{uuid.uuid4().hex[:8]}'
         log_ctx = log.bind(task_id=task_id)
-
+        
         try:
             # Check Redis connection
             if not await self.ensure_redis_connection():
-                return BrowserTaskResponse(task_id=task_id, task_status=BrowserTaskStatus.FAILED,
-                                           task_response="Failed to connect to Redis")
-
+                return BrowserTaskResponse(task_id=task_id, task_status=BrowserTaskStatus.FAILED, task_response="Failed to connect to Redis")
+            
             # Add task to the stream
-            redis_task = {'task_id': task_id}
-
+            redis_task = {'task_id': task_id }
+            
             # Initialize the task result in Redis with pending status
             result_key = self.get_task_result_key(task_id)
             initial_result = BrowserTaskResponse(task_id=task_id, task_status=BrowserTaskStatus.WAITING)
@@ -208,14 +161,14 @@ class TaskManager:
                 response=initial_result,
                 created_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             )
-
+            
             # Store the initial result
             await self.redis.set(result_key, json.dumps(entry.model_dump()), ex=REDIS_RESULT_EXPIRATION_SECONDS)
-
+            
             # Add to task stream
             log_ctx.info("Adding task to Redis stream", task_id=task_id, task_data=task_data)
             await self.redis.xadd(
-                name=task_data.task_queue_name(),  # tts task has a unique task queue for each shop
+                name=task_data.task_queue_name(), # tts task has a unique task queue for each shop
                 fields=redis_task,
                 maxlen=10000,  # Limit stream length
                 approximate=True
@@ -224,13 +177,12 @@ class TaskManager:
 
         except Exception as e:
             log_ctx.exception("Error submitting task", error=str(e), exc_info=True)
-            return BrowserTaskResponse(task_id=task_id, task_status=BrowserTaskStatus.FAILED,
-                                       task_response=f"Error submitting task: {e}")
+            return BrowserTaskResponse(task_id=task_id, task_status=BrowserTaskStatus.FAILED, task_response=f"Error submitting task: {e}")
 
     async def get_task_result(self, task_id) -> BrowserTaskResponse:
         """
         Get the result of a task from Redis.
-
+        
         Args:
             task_id: The ID of the task to get the result for
 
@@ -239,38 +191,35 @@ class TaskManager:
         """
         log_ctx = log.bind(task_id=task_id)
         result_key = self.get_task_result_key(task_id)
-
+        
         try:
             # Check Redis connection
             if not await self.ensure_redis_connection():
-                return BrowserTaskResponse(task_id=task_id, task_status=BrowserTaskStatus.FAILED,
-                                           task_response="Failed to connect to Redis")
-
+                return BrowserTaskResponse(task_id=task_id, task_status=BrowserTaskStatus.FAILED, task_response="Failed to connect to Redis")
+            
             # Try to get the result
             result_json = await self.redis.get(result_key)
-
+            
             if result_json:
                 # Parse the result
                 result = json.loads(result_json)
                 entry = TaskEntry(**result)
                 log_ctx.info("Result found", task_id=task_id, result=entry.response)
                 return entry.response
-
+            
             log_ctx.error("Result not found", task_id=task_id)
-            return BrowserTaskResponse(task_id=task_id, task_status=BrowserTaskStatus.FAILED,
-                                       task_response="Result not found")
-
+            return BrowserTaskResponse(task_id=task_id, task_status=BrowserTaskStatus.FAILED, task_response="Result not found")
+        
         except Exception as e:
             log_ctx.exception("Error getting result", error=str(e), exc_info=True)
-            return BrowserTaskResponse(task_id=task_id, task_status=BrowserTaskStatus.FAILED,
-                                       task_response=f"Error getting result: {str(e)}")
-
+            return BrowserTaskResponse(task_id=task_id, task_status=BrowserTaskStatus.FAILED, task_response=f"Error getting result: {str(e)}")
+    
     async def create_consumer_group(self, task_queue_name: str) -> bool:
         """Create consumer group for task processing if it doesn't exist."""
         try:
             if not await self.ensure_redis_connection():
                 return False
-
+                
             # Create consumer group if it doesn't exist
             try:
                 await self.redis.xgroup_create(
@@ -286,29 +235,28 @@ class TaskManager:
                     log.info("Consumer group already exists", group=self.group_name)
                 else:
                     raise
-
+                    
             return True
         except Exception as e:
             log.exception("Failed to create consumer group", error=str(e), exc_info=True)
             return False
-
-    async def read_next_task(self, consumer_name: str, task_queue_name: str, block_ms=2000) -> tuple[
-                                                                                                   str, TaskEntry] | None:
+    
+    async def read_next_task(self, consumer_name: str, task_queue_name: str, block_ms=2000) -> tuple[str, TaskEntry] | None:
         """
         Read the next task from the Redis stream.
-
+        
         Args:
             consumer_name: The name of the consumer (usually worker ID)
             task_queue_name: The name of the task queue (by tts shop name)
             block_ms: How long to block waiting for a new message (in milliseconds)
-
+            
         Returns:
             Task data or None if no task is available
         """
         try:
             if not await self.ensure_redis_connection():
                 return None
-
+                
             # Read from the stream
             tasks = await self.redis.xreadgroup(
                 groupname=self.group_name,
@@ -317,48 +265,47 @@ class TaskManager:
                 count=1,
                 block=block_ms
             )
-
+            
             if not tasks:  # No new messages
                 return None
-
+                
             log.info("Tasks found", task_count=len(tasks))
-
+                
             # Process the first task
             for stream_name, messages in tasks:
                 for message_id, data in messages:
                     # Convert binary keys and values to strings
-                    task_data = {k.decode('utf-8') if isinstance(k, bytes) else k:
-                                     v.decode('utf-8') if isinstance(v, bytes) else v
-                                 for k, v in data.items()}
+                    task_data = {k.decode('utf-8') if isinstance(k, bytes) else k: 
+                                v.decode('utf-8') if isinstance(v, bytes) else v 
+                                for k, v in data.items()}
                     resolved_message_id = message_id.decode('utf-8') if isinstance(message_id, bytes) else message_id
-
+                    
                     # Get the task details from Redis
                     task_id = task_data.get('task_id')
                     if task_id:
                         result_key = self.get_task_result_key(task_id)
                         result_json = await self.redis.get(result_key)
-
+                        
                         if result_json:
                             # Update the task status to running
                             try:
                                 entry = TaskEntry(**json.loads(result_json))
                                 entry.response.task_status = BrowserTaskStatus.RUNNING
                                 entry.start_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                await self.redis.set(result_key, json.dumps(entry.model_dump()),
-                                                     ex=REDIS_RESULT_EXPIRATION_SECONDS)
+                                await self.redis.set(result_key, json.dumps(entry.model_dump()), ex=REDIS_RESULT_EXPIRATION_SECONDS)
 
                                 return resolved_message_id, entry
                             except Exception as e:
                                 log.exception("Error updating task status", task_id=task_id, error=str(e))
                                 return
-
+                    
                     log.error("Task found in stream but no valid entry in Redis", task_id=task_id)
                     return
 
         except Exception as e:
             log.exception("Error reading task", error=str(e), exc_info=True)
             await asyncio.sleep(1)  # Avoid tight loop on persistent errors
-
+    
     async def acknowledge_task(self, message_id: str, task_queue_name: str):
         """
         Acknowledge that a task has been processed.
@@ -366,17 +313,16 @@ class TaskManager:
         try:
             if not await self.ensure_redis_connection():
                 return
-
+                
             await self.redis.xack(task_queue_name, self.group_name, message_id)
             log.info("Task acknowledged", message_id=message_id)
         except Exception as e:
             log.exception("Error acknowledging task", error=str(e), exc_info=True, message_id=message_id)
-
-    async def update_task_result(self, worker_id: str, task_id: str, status: BrowserTaskStatus, response=None,
-                                 exception=None) -> bool:
+    
+    async def update_task_result(self, worker_id: str, task_id: str, status: BrowserTaskStatus, response=None, exception=None) -> bool:
         """
         Update the result of a task in Redis.
-
+        
         Args:
             task_id: The ID of the task to update
             status: The new status (completed, failed, etc.)
@@ -387,54 +333,53 @@ class TaskManager:
         try:
             if not await self.ensure_redis_connection():
                 return False
-
+                
             # Get the current entry
             result_key = self.get_task_result_key(task_id)
             result_json = await self.redis.get(result_key)
-
+            
             if not result_json:
                 log.error("Task not found for update", task_id=task_id)
                 return False
-
+                
             # Update the entry
             entry = TaskEntry(**json.loads(result_json))
             entry.response.task_status = status
-
+            
             if response:
                 entry.response.task_response = response
-
+                
             if exception:
                 entry.response.task_response = f"Error: {str(exception)}"
-
+                
             entry.response.worker_name = worker_id
-
+                
             if status == BrowserTaskStatus.COMPLETED or status == BrowserTaskStatus.FAILED:
                 entry.end_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
+                
             # Save the updated entry
             await self.redis.set(
-                result_key,
-                json.dumps(entry.model_dump()),
+                result_key, 
+                json.dumps(entry.model_dump()), 
                 ex=REDIS_RESULT_EXPIRATION_SECONDS
             )
-
+            
             # Notify status listeners
             self._notify_listeners(worker_id, task_id, status, entry.response.task_response)
-
+            
             return True
         except Exception as e:
-            log.exception("Error updating task",
-                          error=str(e),
-                          exc_info=True,
-                          task_id=task_id)
+            log.exception("Error updating task", 
+                        error=str(e), 
+                        exc_info=True, 
+                        task_id=task_id)
             return False
 
 
 # TaskManager Singleton
 _task_manager = None
 
-
-# Use get_task_manager() to get the TaskManager instance instead of TaskManager() directly
+# Use get_task_manager() to get the TaskManager instance instead of TaskManager() directly 
 # This ensures that the TaskManager instance is a singleton
 async def get_task_manager() -> TaskManager:
     """Dependency function to get the TaskManager instance."""
@@ -446,14 +391,10 @@ async def get_task_manager() -> TaskManager:
         log.info("Task manager initialized successfully")
     return _task_manager
 
-
 # Add a shutdown function for cleanup
 async def shutdown_task_manager():
     """Clean up the task manager when the application shuts down."""
     global _task_manager
-    if _task_manager:
-        if _task_manager.redis:
-            await _task_manager.redis.close()
-        if _task_manager.mysql_connection:
-            await _task_manager.close_mysql_connection()
-        _task_manager = None
+    if _task_manager and _task_manager.redis:
+        await _task_manager.redis.close()
+        _task_manager = None 
