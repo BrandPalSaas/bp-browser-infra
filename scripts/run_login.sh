@@ -13,7 +13,7 @@ fi
 # Set environment variables
 export PYTHONPATH=$PYTHONPATH:$PWD
 
-source venv/bin/activate
+source .venv/Scripts/activate
 
 cd app/login
 python main.py "$1" "$2" 
