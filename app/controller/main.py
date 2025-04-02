@@ -14,6 +14,7 @@ from fastapi import (
     Request,
     HTTPException,
 )
+from pydantic import BaseModel
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -27,6 +28,7 @@ from app.models import (
 )
 from app.common.task_manager import get_task_manager, TaskManager
 from app.controller.worker_manager import get_worker_manager, WorkerManager
+from app.playwright.get_kol_GMV import poll_task_status
 
 from dotenv import load_dotenv
 
@@ -240,63 +242,40 @@ async def start_browser_task(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/browser/task/kolDetail", response_model=BrowserTaskResponse)
+class KolDetailRequest(BaseModel):
+    kolId: str
+
+
+@app.post("/browser/task/kolDetail")
 async def start_kol_detail_task(
-    kolId: str,
-    task_manager: TaskManager = Depends(get_task_manager)
+    data: KolDetailRequest,
+    task_manager: TaskManager = Depends(get_task_manager),
 ):
     """
-    根据传入的kolId获取kol的详细信息
+    根据传入的kolId启动获取kol详细信息的任务
     1. 提交浏览器任务
-    2. 轮询任务状态
-    3. 任务完成后调用外部API
-    4. 返回最终结果
+    2. 立即返回taskId
     """
-    MAX_RETRIES = 3
-    POLL_INTERVAL = 5  # 轮询间隔 1秒
-    TIMEOUT = 300  # 超时时间 300秒
-
     try:
         # 提交任务
-        task_response = await task_manager.submit_task(BrowserTaskRequest(
-            task={
-                "description": f"Open 'https://affiliate-us.tiktok.com/connection/creator?shop_region=US', and click Find creators. In the search box, type in: {kolId}, remember to click the magnifier button to execute the search. In search result, find the row that has name exactly same as what you typed in search. Return the influencer name as name, GMV as gmv, Item Sold as item_sold, Avg video views as avg_video_views, and Engagement Rate as engagement_rate, in json format.",
-                "shop": {
-                    "shop": "ShopperInc",
-                    "bind_user_email": "dengjie200@gmail.com",
-                },
-            }
-        ))
+        task_response = await task_manager.submit_task(
+            BrowserTaskRequest(
+                task={
+                    "description": f"Open 'https://affiliate-us.tiktok.com/connection/creator?shop_region=US', and click Find creators. In the search box, type in: {data.kolId}, remember to click the magnifier button to execute the search. In search result, find the row that has name exactly same as what you typed in search. Return the influencer name as name, GMV as gmv, Item Sold as item_sold, Avg video views as avg_video_views, and Engagement Rate as engagement_rate, in json format. 'final_result' is returned to me in JSON format, and it is not allowed to add any description",
+                    "shop": {
+                        "shop": "ShopperInc",
+                        "bind_user_email": "dengjie200@gmail.com",
+                    },
+                }
+            )
+        )
 
-        task_id = task_response.task_id
+        # 启动轮询
+        asyncio.create_task(poll_task_status(task_response.task_id, task_manager))
 
-        # 轮询任务状态
-        start_time = asyncio.get_event_loop().time()
-        while True:
-            # 检查超时
-            if asyncio.get_event_loop().time() - start_time > TIMEOUT:
-                raise HTTPException(status_code=504, detail="Task timeout")
+        # 返回taskId
+        return task_response
 
-            # 获取任务状态
-            task_status = await task_manager.get_task_result(task_id)
-
-            if task_status.task_status == BrowserTaskStatus.COMPLETED:
-                # 任务完成，调用外部API
-                try:
-                    # TODO: 添加实际的外部API调用逻辑
-                    # external_api_response = await call_external_api(task_status.task_response)
-                    return task_status.task_response
-                except Exception as e:
-                    log.error("Error calling external API", error=str(e))
-                    raise HTTPException(status_code=502, detail="External API call failed")
-
-            elif task_status.task_status == BrowserTaskStatus.FAILED:
-                raise HTTPException(status_code=500, detail=task_status.task_response)
-
-            await asyncio.sleep(POLL_INTERVAL)
-
-    except HTTPException:
-        raise
     except Exception as e:
         log.exception("Error in kol detail task", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
