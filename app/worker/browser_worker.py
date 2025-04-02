@@ -44,6 +44,7 @@ class BrowserWorker:
         self._running = True
         self._shop = shop
         
+        
         random_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
         self._worker_id = f"worker-{socket.gethostname()}-{random_id}"
         
@@ -159,39 +160,16 @@ class BrowserWorker:
             log_ctx.info("Task completed successfully", result=raw_response)
             return raw_response
 
-    async def process_playwright_task(self, log_ctx: structlog.stdlib.BoundLogger, task_id: str, task: TTSPlaywrightTask):
+
+    async def process_playwright_task(self, log_ctx: structlog.stdlib.BoundLogger, task_id: str, task: TTSPlaywrightTaskType):
         ## TODO: process playwright task
-        try:
-            log_ctx.info("Processing playwright task", task_id=task_id, task=task)
-            
-            # 根据 task_type 处理不同的 Playwright 任务
-            if task.task_type == TTSPlaywrightTaskType.DOWNLOAD_GMV_CSV:
-                # 实现下载 GMV CSV 的逻辑
-                download_result= await download_gmv_csv()
-                raw_response = RawResponse(
-                    total_duration_seconds=0.0,
-                    total_input_tokens=0,
-                    num_of_steps=0,
-                    is_successful=True,
-                    has_errors=False,
-                    final_result= download_result
-                )
-                return raw_response
-            else:
-                raise ValueError(f"Unsupported playwright task type: {task.task_type}")
-                
-        except Exception as e:
-            log_ctx.exception("Error processing playwright task", error=str(e))
-            # Remove this line as it's causing the RuntimeError
-            # raise
-            return  RawResponse(
-                total_duration_seconds=0.0,
-                total_input_tokens=0,
-                num_of_steps=0,
-                is_successful=True,
-                has_errors=False,
-                final_result=str(e)
-            )
+        if task.task_type == TTSPlaywrightTaskType.DOWNLOAD_GMV_CSV:
+            # hongkun's work:
+            pass
+        else:
+            raise ValueError(f"Unknown task type: {task.task_type}")
+        
+        
 
     async def read_tasks(self):
         """Read tasks from Redis stream and process them."""

@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 import structlog
 
 from app.login.tts import TTSLoginManager
+from app.common.task_manager import get_task_manager
 
 # Set up logging
 log = structlog.get_logger(__name__)
@@ -24,6 +25,15 @@ async def main():
     parser.add_argument('username', help='TikTok Shop username/email')
     parser.add_argument('password', help='TikTok Shop password')
     args = parser.parse_args()
+
+    task_manager = await get_task_manager()
+
+    print("Connecting to redis: ", task_manager.redis_info)
+    if await task_manager.ensure_redis_connection():
+        print("Redis connection successful")
+    else:
+        print("Redis connection failed")
+        return
 
     try:
         # Create TTSLoginManager instance

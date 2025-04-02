@@ -34,17 +34,21 @@ class TTSLoginManager:
             # need this time to enter the confirmation code in browser
             await asyncio.sleep(100)
 
+            # check if the page is redirected to the login page
+            print("current page url: ", page.url)
+            if not page.url.startswith(TTS_LOGIN_URL):
+                log.error("Login failed, please check your username, password and complete verification")
+                return
+
             # Save browser context
             context_storage = await context.storage_state()
             cookies = context_storage['cookies']
             await browser.close()
 
-            log.info("Login cookies created", cookies=cookies)
-        
-        task_manager = await get_task_manager()
-        await task_manager.save_cookies(username, cookies)
+            task_manager = await get_task_manager()
+            await task_manager.save_cookies(username, cookies)
 
-        log.info("Successfully saved login cookies for username", username=username)
+            log.info("Successfully saved login cookies for username", username=username)
 
 
     async def get_login_cookies(self, shop: TTShop) -> List[Cookie]:

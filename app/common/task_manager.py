@@ -41,19 +41,21 @@ class TaskManager:
         self.redis_password = os.getenv("REDIS_PASSWORD", "")
         self.redis_db = int(os.getenv("REDIS_DB", 0))
         self.redis_ssl = os.getenv("REDIS_SSL", "false").lower() == "true"
-        # self.task_stream = BROWSER_TASKS_STREAM
         self.results_key_suffix = TASK_RESULTS_KEY_SUFFIX
         self.group_name = "browser_workers"
         self.redis = None
 
         # Task status listeners
         self.status_listeners: Set[TaskStatusCallback] = set()
-
+    
+    @property
+    def redis_info(self):
+        return f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
+    
     async def save_cookies(self, username: str, cookies: List[Cookie]):
-        await self.redis.set(
-            REDIS_COOKIES_KEY_FMT.format(username), json.dumps(cookies)
-        )
-
+        log.info(f"Saving cookies to redis, key: {REDIS_COOKIES_KEY_FMT.format(username)}")
+        await self.redis.set(REDIS_COOKIES_KEY_FMT.format(username), json.dumps(cookies))
+    
     async def get_cookies(self, username: str) -> List[Cookie]:
         cookies_json = await self.redis.get(REDIS_COOKIES_KEY_FMT.format(username))
         return json.loads(cookies_json) if cookies_json else []
