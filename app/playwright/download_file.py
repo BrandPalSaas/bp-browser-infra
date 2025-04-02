@@ -10,6 +10,18 @@ debugging_port = "--remote-debugging-port=9222"
 async def download_gmv_csv(page):
     """下载 GMV CSV 文件的主逻辑"""
     print('连接浏览器')
+    
+    await page.set_extra_http_headers({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "X-Requested-With": "XMLHttpRequest",
+        "Cache-Control": "no-cache",
+        "Upgrade-Insecure-Requests": "1",
+        "Accept": "application/json, text/javascript, */*; q=0.01"
+    })
+    
     page.set_default_timeout(60000)  # Increase timeout 
     # 创建 Future 对象用于等待下载开始
     download_future = asyncio.Future()
