@@ -41,6 +41,7 @@ class BrowserWorker:
         self._running = True
         self._shop = shop
         
+        
         random_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
         self._worker_id = f"worker-{socket.gethostname()}-{random_id}"
         
@@ -152,9 +153,14 @@ class BrowserWorker:
             log_ctx.info("Task completed successfully", result=raw_response)
             return raw_response
 
+
     async def process_playwright_task(self, log_ctx: structlog.stdlib.BoundLogger, task_id: str, task: TTSPlaywrightTaskType):
         ## TODO: process playwright task
-        log_ctx.info("Processing playwright task", task_id=task_id, task=task)
+        if task.task_type == TTSPlaywrightTaskType.DOWNLOAD_GMV_CSV:
+            # hongkun's work:
+            pass
+        else:
+            raise ValueError(f"Unknown task type: {task.task_type}")
         
         
 
