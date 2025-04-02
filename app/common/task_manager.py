@@ -4,6 +4,7 @@ import json
 import redis.asyncio as redis
 import structlog
 import asyncio
+import aiomysql
 from datetime import datetime
 from typing import Callable, Dict, Optional, Union, Any, List, Set
 from playwright._impl._api_structures import Cookie
@@ -33,7 +34,14 @@ class TaskManager:
         self.results_key_suffix = TASK_RESULTS_KEY_SUFFIX
         self.group_name = "browser_workers"
         self.redis = None
-        
+
+        # MySQL configuration
+        self.mysql_host = os.getenv("MYSQL_HOST", "localhost")
+        self.mysql_user = os.getenv("MYSQL_USER", "root")
+        self.mysql_password = os.getenv("MYSQL_PASSWORD", "")
+        self.mysql_db = os.getenv("MYSQL_DB", "aa-mainbiz-dev")
+        self.mysql_pool = None  # Initialize MySQL pool
+
         # Task status listeners
         self.status_listeners: Set[TaskStatusCallback] = set()
     
@@ -80,12 +88,18 @@ class TaskManager:
 
     async def initialize(self):
         """Initialize the task manager asynchronously."""
-        # Connect to Redis
-        if not await self.connect_to_redis():
+        # Connect to Redis and MySQL
+        redis_connected = await self.connect_to_redis()
+        mysql_connected = await self.connect_to_mysql()
+
+        if not redis_connected:
             log.error("Failed to connect to Redis during initialization")
             return False
+        if not mysql_connected:
+            log.error("Failed to connect to MySQL during initialization")
+            return False
+
         return True
-    
     async def connect_to_redis(self):
         """Connect to Redis."""
         try:
@@ -117,6 +131,32 @@ class TaskManager:
         except Exception as e:
             log.exception("Failed to connect to Redis", error=str(e), exc_info=True)
             return False
+
+    async def connect_to_mysql(self):
+        """MySQL connection """
+        try:
+            log.info(" Connected to MySQL ", host=self.mysql_host, user=self.mysql_user, database=self.mysql_db)
+            self.mysql_pool = await aiomysql.create_pool(
+                host=self.mysql_host,
+                port=3306,
+                user=self.mysql_user,
+                password=self.mysql_password,
+                db=self.mysql_db,
+                autocommit=True
+            )
+
+            log.info("Connected to MySQL successfully")
+            return True
+        except Exception as e:
+            log.exception("Failed to connect to MySQL", error=str(e), exc_info=True)
+            return False
+
+    async def close_mysql_connection(self):
+        """关闭 MySQL 连接池。"""
+        if self.mysql_pool:
+            self.mysql_pool.close()
+            await self.mysql_pool.wait_closed()
+            log.info("MySQL connection pool closed")
 
     async def ensure_redis_connection(self) -> bool:
         """Reconnect to Redis if needed."""
@@ -395,6 +435,9 @@ async def get_task_manager() -> TaskManager:
 async def shutdown_task_manager():
     """Clean up the task manager when the application shuts down."""
     global _task_manager
-    if _task_manager and _task_manager.redis:
-        await _task_manager.redis.close()
-        _task_manager = None 
+    if _task_manager:
+        if _task_manager.redis:
+            await _task_manager.redis.close()
+        if _task_manager.mysql_connection:
+            await _task_manager.close_mysql_connection()
+        _task_manager = None
