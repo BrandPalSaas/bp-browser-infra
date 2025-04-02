@@ -7,24 +7,10 @@ from browser_use import Browser
 # chrome_path = r'"C:\Program Files\Google\Chrome\Application\chrome.exe"'
 debugging_port = "--remote-debugging-port=9222"
 
-async def connect_to_browser(p, max_retries=5, delay=1):
-    """Helper function to connect to browser with retries"""
-    for attempt in range(max_retries):
-        try:
-            browser = await p.chromium.connect_over_cdp("http://127.0.0.1:9222")
-            return browser
-        except Exception as e:
-            if attempt == max_retries - 1:
-                raise
-            print(f"连接第{attempt + 1}次失败,  {delay}秒后重试...")
-            await asyncio.sleep(delay)
-
 async def download_gmv_csv(page):
     """下载 GMV CSV 文件的主逻辑"""
     print('连接浏览器')
-    # 使用传入的 browser 创建 context 和 page
- 
-    
+    page.set_default_timeout(60000)  # Increase timeout 
     # 创建 Future 对象用于等待下载开始
     download_future = asyncio.Future()
     
@@ -35,7 +21,6 @@ async def download_gmv_csv(page):
             'status': 'success',
             'download_url': download.url
         })
-        
     
     # 创建 Future 对象用于等待下载开始
     download_future = asyncio.Future()
@@ -48,7 +33,6 @@ async def download_gmv_csv(page):
             'download_url': download.url
         })
         page.close()
-        browser.close()
     
     # 设置下载事件监听器
     page.on('download', handle_download)
@@ -88,11 +72,12 @@ async def download_gmv_csv(page):
     # await page.evaluate("document.querySelector('.RecordItem__StyledButton-sc-a4nsjm-0').click()")
     try:
         button = page.locator('.RecordItem__StyledButton-sc-a4nsjm-0')
+        print('下载按钮',button )
         await button.wait_for(state='visible', timeout=1100)  # 10秒超时
         await button.click()
         print('点击下载按钮')
     except Exception as e:
-        return {"status": "success", "message": '下载成功'}
+        return {"status": "success", "message": e}
     
     # 等待下载开始并返回结果
     return await download_future
@@ -110,7 +95,7 @@ async def click_btn_dom(page, evaluateVal, max_retries=3, initial_timeout=2000):
             timeout = initial_timeout * (attempt + 1)
             await page.wait_for_selector('.theme-arco-picker', state='visible', timeout=timeout)
             await page.evaluate(evaluateVal)
-            print(f'第 {attempt + 1} 次尝试，点击时间组件成功')
+            print(f'第 {attempt + 1} 次尝试，执行js脚本')
             return True
         except Exception as e:
             print(f'第 {attempt + 1} 次尝试失败: {str(e)}')

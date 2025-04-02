@@ -166,40 +166,50 @@ class BrowserWorker:
             if task.task_type == TTSPlaywrightTaskType.DOWNLOAD_GMV_CSV:
                 # 实现下载 GMV CSV 的逻辑
                 self._cookies_file = await self._login_manager.save_login_cookies_to_tmp_file(self._shop)
-                print('cookies_file:', self._cookies_file)
-                
-              # 解析 cookies 文件并回填到浏览器
-                with open(self._cookies_file, 'r') as f:
-                    cookies = json.load(f)
-                
-                playwright_browser = await self._browser.get_playwright_browser()
-                context = await playwright_browser.new_context()
-                await context.add_cookies(cookies)  # 将 cookies 添加到浏览器上下文
-                page = await context.new_page()
-                 
-                download_result= await download_gmv_csv(page)
-                if download_result.status == 'success':
-                    result_str = json.dumps(download_result, ensure_ascii=False)
-                    print('文件下载成功',download_result)
-                    raw_response = RawResponse(
-                        total_duration_seconds=0.0,
-                        total_input_tokens=0,
-                        num_of_steps=0,
-                        is_successful=True,
-                        has_errors=False,
-                        final_result= result_str
-                    )
-                    return raw_response
+                if self._cookies_file:
+                    # 解析 cookies 文件并回填到浏览器
+                    with open(self._cookies_file, 'r') as f:
+                        cookies = json.load(f)
+                    
+                    playwright_browser = await self._browser.get_playwright_browser()
+                    context = await playwright_browser.new_context()
+                    await context.add_cookies(cookies)  # 将 cookies 添加到浏览器上下文
+                    page = await context.new_page()
+                    
+                    download_result= await download_gmv_csv(page)
+                    print('文件下载结果',download_result)
+                    if download_result.get('status') == 'success':  # 
+                        result_str = json.dumps(download_result, ensure_ascii=False)
+                        raw_response = RawResponse(
+                            total_duration_seconds=0.0,
+                            total_input_tokens=0,
+                            num_of_steps=0,
+                            is_successful=True,
+                            has_errors=False,
+                            final_result= result_str
+                        )
+                        # playwright_browser.close()
+                        return raw_response
+                    else:
+                        raw_response = RawResponse(
+                            total_duration_seconds=0.0,
+                            total_input_tokens=0,
+                            num_of_steps=0,
+                            is_successful=True,
+                            has_errors=False,
+                            final_result= '下载失败'
+                        )
+                        return raw_response
                 else:
-                    raw_response = RawResponse(
+                    print('浏览器未登录！')
+                    return  RawResponse(
                         total_duration_seconds=0.0,
                         total_input_tokens=0,
                         num_of_steps=0,
                         is_successful=True,
                         has_errors=False,
-                        final_result= '下载失败'
+                        final_result= '浏览器未登录'
                     )
-                    return raw_response
             else:
                 raise ValueError(f"Unsupported playwright task type: {task.task_type}")
                 
