@@ -64,12 +64,14 @@ class BrowserWorker:
         try:
             log.info("Initializing browser", name=self.id, shop=str(self._shop))
             self._cookies_file = await self._login_manager.save_login_cookies_to_tmp_file(self._shop)
-            if self._cookies_file:
-                log.info("Using cookies file", cookies_file=self._cookies_file, shop=str(self._shop))
-                context_config = BrowserContextConfig(cookies_file=self._cookies_file)
-                self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True, new_context_config=context_config, chrome_instance_path='C:\Program Files\Google\Chrome\Application\chrome.exe'))
-            else:
-                self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True,chrome_instance_path='C:\Program Files\Google\Chrome\Application\chrome.exe'))
+            # if self._cookies_file:
+            #     log.info("Using cookies file", cookies_file=self._cookies_file, shop=str(self._shop))
+            #     context_config = BrowserContextConfig(cookies_file=self._cookies_file)
+            #     self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True, new_context_config=context_config, chrome_instance_path='C:\Program Files\Google\Chrome\Application\chrome.exe'))
+            # else:
+            #     self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True,chrome_instance_path='C:\Program Files\Google\Chrome\Application\chrome.exe'))
+
+            self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True,chrome_instance_path='C:\Program Files\Google\Chrome\Application\chrome.exe'))
 
             log.info("Browser initialized and ready")
             return True

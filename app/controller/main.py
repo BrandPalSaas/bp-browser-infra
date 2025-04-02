@@ -1,6 +1,7 @@
 import sys
 import asyncio
 import os
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 import json
 import structlog
@@ -243,7 +244,7 @@ async def start_browser_task(
 
 
 class KolDetailRequest(BaseModel):
-    kolId: str
+    uniqueId: str
 
 
 @app.post("/browser/task/kolDetail")
@@ -261,7 +262,8 @@ async def start_kol_detail_task(
         task_response = await task_manager.submit_task(
             BrowserTaskRequest(
                 task={
-                    "description": f"Open 'https://affiliate-us.tiktok.com/connection/creator?shop_region=US', and click Find creators. In the search box, type in: {data.kolId}, remember to click the magnifier button to execute the search. In search result, find the row that has name exactly same as what you typed in search. Return the influencer name as name, GMV as gmv, Item Sold as item_sold, Avg video views as avg_video_views, and Engagement Rate as engagement_rate, in json format. 'final_result' is returned to me in JSON format, and it is not allowed to add any description",
+                    # "description": f"Open 'https://affiliate-us.tiktok.com/connection/creator?shop_region=US', and click Find creators. In the search box, type in: {data.uniqueId}, remember to press enter to search. In search result, find the row that has name exactly same as what you typed in search. Return the influencer name as name, GMV as gmv, Item Sold as item_sold, Avg video views as avg_video_views, and Engagement Rate as engagement_rate, in json format. 'final_result' is returned to me in JSON format, and it is not allowed to add any description",
+                    "description": f"Open 'https://affiliate-us.tiktok.com/connection/creator?shop_region=US', wait for the page to finish rendering and click on Find creators. In the search box, type in: {data.uniqueId}, remember to press enter to search. In search result, find the row that has name exactly same as what you typed in search. Return the influencer name as name, GMV as gmv, Item Sold as item_sold, Avg video views as avg_video_views, and Engagement Rate as engagement_rate, in json format. 'final_result' is returned to me in JSON format, and it is not allowed to add any description",
                     "shop": {
                         "shop": "ShopperInc",
                         "bind_user_email": "dengjie200@gmail.com",
