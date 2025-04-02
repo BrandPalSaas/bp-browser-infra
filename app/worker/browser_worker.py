@@ -67,9 +67,9 @@ class BrowserWorker:
             if self._cookies_file:
                 log.info("Using cookies file", cookies_file=self._cookies_file, shop=str(self._shop))
                 context_config = BrowserContextConfig(cookies_file=self._cookies_file)
-                self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True, new_context_config=context_config, chrome_instance_path='C:\Program Files\Google\Chrome\Application\chrome.exe'))
+                self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True, new_context_config=context_config ))
             else:
-                self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True,chrome_instance_path='C:\Program Files\Google\Chrome\Application\chrome.exe'))
+                self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True))
 
             log.info("Browser initialized and ready")
             return True
@@ -165,18 +165,30 @@ class BrowserWorker:
             # 根据 task_type 处理不同的 Playwright 任务
             if task.task_type == TTSPlaywrightTaskType.DOWNLOAD_GMV_CSV:
                 # 实现下载 GMV CSV 的逻辑
-                download_result= await download_gmv_csv()
-                result_str = json.dumps(download_result, ensure_ascii=False)
-                print('文件下载成功',download_result)
-                raw_response = RawResponse(
-                    total_duration_seconds=0.0,
-                    total_input_tokens=0,
-                    num_of_steps=0,
-                    is_successful=True,
-                    has_errors=False,
-                    final_result= result_str
-                )
-                return raw_response
+                playwright_browser = await self._browser.get_playwright_browser()
+                download_result= await download_gmv_csv(playwright_browser)
+                if download_result.status == 'success':
+                    result_str = json.dumps(download_result, ensure_ascii=False)
+                    print('文件下载成功',download_result)
+                    raw_response = RawResponse(
+                        total_duration_seconds=0.0,
+                        total_input_tokens=0,
+                        num_of_steps=0,
+                        is_successful=True,
+                        has_errors=False,
+                        final_result= result_str
+                    )
+                    return raw_response
+                else:
+                    raw_response = RawResponse(
+                        total_duration_seconds=0.0,
+                        total_input_tokens=0,
+                        num_of_steps=0,
+                        is_successful=True,
+                        has_errors=False,
+                        final_result= '下载失败'
+                    )
+                    return raw_response
             else:
                 raise ValueError(f"Unsupported playwright task type: {task.task_type}")
                 
