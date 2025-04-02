@@ -166,13 +166,15 @@ class BrowserWorker:
             if task.task_type == TTSPlaywrightTaskType.DOWNLOAD_GMV_CSV:
                 # 实现下载 GMV CSV 的逻辑
                 download_result= await download_gmv_csv()
+                result_str = json.dumps(download_result, ensure_ascii=False)
+                print('文件下载成功',download_result)
                 raw_response = RawResponse(
                     total_duration_seconds=0.0,
                     total_input_tokens=0,
                     num_of_steps=0,
                     is_successful=True,
                     has_errors=False,
-                    final_result= download_result
+                    final_result= result_str
                 )
                 return raw_response
             else:
