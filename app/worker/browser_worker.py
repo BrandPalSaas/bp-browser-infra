@@ -26,7 +26,7 @@ load_dotenv()
 log = structlog.get_logger(__name__)
 
 # TODO: make shop name configurable (e.g load from k8s env)  
-_default_shop = TTShop(shop=TTShopName.ShopperInc, bind_user_email="oceanicnewline@gmail.com")
+_default_shop = TTShop(shop=TTShopName.ShopperInc, bind_user_email="dengjie200@gmail.com")
 
 Laminar.initialize(
     project_api_key=os.getenv("LMNR_PROJECT_API_KEY"),
@@ -67,9 +67,9 @@ class BrowserWorker:
             if self._cookies_file:
                 log.info("Using cookies file", cookies_file=self._cookies_file, shop=str(self._shop))
                 context_config = BrowserContextConfig(cookies_file=self._cookies_file)
-                self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True, new_context_config=context_config ))
+                self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True, new_context_config=context_config, ))
             else:
-                self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True))
+                self._browser = Browser(config=BrowserConfig(headless=False, disable_security=True,))
 
             log.info("Browser initialized and ready")
             return True
