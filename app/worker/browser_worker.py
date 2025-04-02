@@ -165,8 +165,19 @@ class BrowserWorker:
             # 根据 task_type 处理不同的 Playwright 任务
             if task.task_type == TTSPlaywrightTaskType.DOWNLOAD_GMV_CSV:
                 # 实现下载 GMV CSV 的逻辑
+                self._cookies_file = await self._login_manager.save_login_cookies_to_tmp_file(self._shop)
+                print('cookies_file:', self._cookies_file)
+                
+              # 解析 cookies 文件并回填到浏览器
+                with open(self._cookies_file, 'r') as f:
+                    cookies = json.load(f)
+                
                 playwright_browser = await self._browser.get_playwright_browser()
-                download_result= await download_gmv_csv(playwright_browser)
+                context = await playwright_browser.new_context()
+                await context.add_cookies(cookies)  # 将 cookies 添加到浏览器上下文
+                page = await context.new_page()
+                 
+                download_result= await download_gmv_csv(page)
                 if download_result.status == 'success':
                     result_str = json.dumps(download_result, ensure_ascii=False)
                     print('文件下载成功',download_result)
@@ -244,7 +255,6 @@ class BrowserWorker:
         self._running = False
         await self._browser.close()
         log.info("Browser worker shutdown complete")
-
 
 # BrowserWorker Singleton
 _browser_worker = None

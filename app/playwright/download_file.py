@@ -19,12 +19,11 @@ async def connect_to_browser(p, max_retries=5, delay=1):
             print(f"连接第{attempt + 1}次失败,  {delay}秒后重试...")
             await asyncio.sleep(delay)
 
-async def download_gmv_csv(browser:Browser):
+async def download_gmv_csv(page):
     """下载 GMV CSV 文件的主逻辑"""
     print('连接浏览器')
     # 使用传入的 browser 创建 context 和 page
-    context = await browser.new_context()
-    page = await context.new_page()
+ 
     
     # 创建 Future 对象用于等待下载开始
     download_future = asyncio.Future()
