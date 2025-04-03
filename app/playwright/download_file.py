@@ -50,7 +50,8 @@ async def download_gmv_csv(cookies_json:json):
         # 获取cookies file
         if cookies_json:
             print('cookies--------------------------', cookies_json)
-            await context.add_cookies(cookies_json)  # 将 cookies 添加到浏览器上下文
+            # 将 cookies 添加到浏览器上下文
+            await context.add_cookies(cookies_json)  
                 
         # 创建 Future 对象用于等待下载开始
         download_future = asyncio.Future()

@@ -7,7 +7,7 @@ set -e
 export PYTHONPATH=$PYTHONPATH:$PWD
 export LIVE_VIEW_PORT=3000
 
-source venv/bin/activate
+source .venv/Scripts/activate
 
 # Start Playwright with Xvfb to run in headless mode
 echo "Starting worker with Xvfb..."
