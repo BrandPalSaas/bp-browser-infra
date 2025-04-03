@@ -1,5 +1,5 @@
 # Use Python 3.11 as base
-FROM python:3.11-slim
+FROM registry.cn-hangzhou.aliyuncs.com/python:3.11-slim
 
 WORKDIR /brandpal
 
