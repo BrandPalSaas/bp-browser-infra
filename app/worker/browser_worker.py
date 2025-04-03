@@ -1,4 +1,5 @@
 import time
+import re
 
 import aiomysql
 from browser_use import Agent, BrowserConfig, Browser
@@ -178,13 +179,13 @@ class BrowserWorker:
             # 根据 task_type 处理不同的 Playwright 任务
             if task.task_type == TTSPlaywrightTaskType.DOWNLOAD_GMV_CSV:
                 # 实现下载 GMV CSV 的逻辑
-                download_result = await download_gmv_csv()
-                # download_result = "/Users/macbookpro/Downloads/Video Performance List_20250402104906.xlsx";
+                # directory_path = await download_gmv_csv()
+                directory_path = "/Users/macbookpro/Downloads/chromdownload";
                 # 获取 task_manager 实例
                 task_manager = await get_task_manager()  # 获取 TaskManager 实例
                 mysql_pool = task_manager.mysql_pool
                 #  调用解析并入库方法
-                success = await parse_and_insert_video_performance_data(download_result, mysql_pool, log_ctx)
+                success = await parse_and_insert_video_performance_data(directory_path, mysql_pool, log_ctx)
                 if success:
                     return RawResponse(
                         total_duration_seconds=0.0,
@@ -276,12 +277,23 @@ async def get_browser_worker():
     return _browser_worker
 
 
-async def parse_and_insert_video_performance_data(file_path: str, mysql_pool: aiomysql.Pool,
+async def parse_and_insert_video_performance_data(directory_path: str, mysql_pool: aiomysql.Pool,
                                                   log_ctx: structlog.stdlib.BoundLogger):
     """解析 Excel 文件并将数据插入到数据库"""
     try:
+        # Step 1: 获取目录下所有符合格式的文件
+        files = [f for f in os.listdir(directory_path) if re.match(r"^Video Performance List_\d{14}\.xlsx$", f)]
+        if not files:
+            log_ctx.error("没有找到符合格式的文件")
+            return False
+        # Step 2: 提取时间戳并找到最大的文件
+        latest_file = max(files, key=lambda f: int(f.split('_')[1].split('.')[0]))  # 提取文件名中的时间戳部分并找到最大值
+        latest_file_path = os.path.join(directory_path, latest_file)
+        print(f"找到最新的文件: {latest_file}")
+        log_ctx.info(f"找到最新的文件: {latest_file}")
+
         # Step 1: 解析 Excel 文件，设置 header=2 表示第三行是表头
-        df = pd.read_excel(file_path, engine="openpyxl", header=2)
+        df = pd.read_excel(latest_file_path, engine="openpyxl", header=2)
         log_ctx.info("Excel 数据加载成功", preview=df.head().to_dict())
 
         # Step 2: 处理缺失的列，确保每列都存在，缺失时设置为空字符串

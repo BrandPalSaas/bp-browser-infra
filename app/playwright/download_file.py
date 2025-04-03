@@ -4,8 +4,8 @@ import asyncio
 import subprocess
 import time
 
-# chrome_path = r'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-chrome_path = r'"C:\Program Files\Google\Chrome\Application\chrome.exe"'
+chrome_path = r'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+# chrome_path = r'"C:\Program Files\Google\Chrome\Application\chrome.exe"'
 debugging_port = "--remote-debugging-port=9222"
 
 async def connect_to_browser(p, max_retries=5, delay=1):
@@ -24,8 +24,8 @@ async def download_gmv_csv():
     """下载 GMV CSV 文件的主逻辑"""
     async with async_playwright() as p:
         print('Launching Chrome browser...')
-        subprocess.Popen(f"{chrome_path} {debugging_port}")
-        # subprocess.Popen([chrome_path,debugging_port])
+        # subprocess.Popen(f"{chrome_path} {debugging_port}")
+        subprocess.Popen([chrome_path,debugging_port])
         try:
             print('Connecting to browser...')
             browser = await connect_to_browser(p)
