@@ -49,7 +49,9 @@ async def poll_task_status(
                 poll_count=poll_count,
             )
             # 调用外部接口
-            http_client.post("/tts/kol", data={"taskId": task_id, "GMV": None})
+            http_client.post(
+                "/tts/kol", data={"taskId": task_id, "GMV": None, "avgVideoViews": None}
+            )
             return None
 
         # 获取任务状态
@@ -87,8 +89,8 @@ async def poll_task_status(
                 json={
                     "taskId": task_id,
                     "GMV": final_result["gmv"],
+                    "avgVideoViews": final_result["avg_video_views"],
                 },
-                # data={"taskId": task_id, "GMV": final_result["gmv"]},
             )
             if response.status_code == 200:
                 response_data = response.json()
@@ -111,7 +113,9 @@ async def poll_task_status(
                 total_polls=poll_count,
             )
             # 调用外部接口
-            http_client.post("/tts/kol", data={"taskId": task_id, "GMV": None})
+            http_client.post(
+                "/tts/kol", data={"taskId": task_id, "GMV": None, "avgVideoViews": None}
+            )
             raise Exception(task_status.task_response)
 
         await asyncio.sleep(poll_interval)
