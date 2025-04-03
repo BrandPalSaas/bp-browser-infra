@@ -1,6 +1,8 @@
 import os
 import uuid
 import json
+
+import aiomysql
 import redis.asyncio as redis
 import structlog
 import asyncio
@@ -33,7 +35,15 @@ class TaskManager:
         self.results_key_suffix = TASK_RESULTS_KEY_SUFFIX
         self.group_name = "browser_workers"
         self.redis = None
-        
+
+        # MySQL configuration
+        self.mysql_host = os.getenv("MYSQL_HOST", "localhost")
+        self.mysql_port = int(os.getenv("MYSQL_PORT", 3306))
+        self.mysql_user = os.getenv("MYSQL_USER", "root")
+        self.mysql_password = os.getenv("MYSQL_PASSWORD", "")
+        self.mysql_db = os.getenv("MYSQL_DB", "aa-mainbiz-dev")
+
+        self.mysql_pool = None  # Initialize MySQL pool
         # Task status listeners
         self.status_listeners: Set[TaskStatusCallback] = set()
     
@@ -84,6 +94,10 @@ class TaskManager:
         if not await self.connect_to_redis():
             log.error("Failed to connect to Redis during initialization")
             return False
+            # Connect to MySQL
+        if not await self.connect_to_mysql():
+            log.error("Failed to connect to MySQL during initialization")
+            return False
         return True
     
     async def connect_to_redis(self):
@@ -126,6 +140,32 @@ class TaskManager:
                 log.error("Failed to reconnect to Redis")
                 return False
         return True
+
+    async def connect_to_mysql(self):
+        """MySQL connection """
+        try:
+            log.info(" Connected to MySQL ", host=self.mysql_host, user=self.mysql_user, database=self.mysql_db)
+            self.mysql_pool = await aiomysql.create_pool(
+                host=self.mysql_host,
+                port=self.mysql_port,
+                user=self.mysql_user,
+                password=self.mysql_password,
+                db=self.mysql_db,
+                autocommit=True
+            )
+
+            log.info("Connected to MySQL successfully")
+            return True
+        except Exception as e:
+            log.exception("Failed to connect to MySQL", error=str(e), exc_info=True)
+            return False
+
+    async def close_mysql_connection(self):
+        """关闭 MySQL 连接池。"""
+        if self.mysql_pool:
+            self.mysql_pool.close()
+            await self.mysql_pool.wait_closed()
+            log.info("MySQL connection pool closed")
 
     def get_task_result_key(self, task_id: str) -> str:
         return f"{task_id}_{self.results_key_suffix}"
@@ -395,6 +435,8 @@ async def get_task_manager() -> TaskManager:
 async def shutdown_task_manager():
     """Clean up the task manager when the application shuts down."""
     global _task_manager
-    if _task_manager and _task_manager.redis:
-        await _task_manager.redis.close()
-        _task_manager = None 
+    if _task_manager:
+        await _task_manager.close_mysql_connection()  # Close MySQL connections
+        if _task_manager.redis:
+            await _task_manager.redis.close()
+        _task_manager = None
