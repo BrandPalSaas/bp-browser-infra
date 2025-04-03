@@ -74,7 +74,7 @@ async def poll_task_status(
             )
 
             print("--------------| 达人信息 JSON |--------------")
-            print(task_status.task_response)
+            print(task_status)
             try:
                 # print(json.loads(task_status.task_response))
                 final_result = json.loads(
@@ -104,6 +104,9 @@ async def poll_task_status(
 
             except json.JSONDecodeError as e:
                 log.error("JSON解析失败", error=str(e))
+                http_client.post(
+                    "/tts/kol", json={"taskId": task_id, "GMV": "", "avgVideoViews": ""}
+                )
                 raise Exception(f"JSON解析失败: {str(e)}")
             print("------------------------------------------------")
 
