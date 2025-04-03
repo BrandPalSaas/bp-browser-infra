@@ -71,7 +71,7 @@ async def poll_task_status(
                 total_polls=poll_count,
             )
             print("--------------| 达人信息 JSON |--------------")
-            # print(task_status.task_response)
+            print(task_status.task_response)
             # print(json.loads(task_status.task_response))
             print(json.loads(json.loads(task_status.task_response)["final_result"]))
             print("------------------------------------------------")
