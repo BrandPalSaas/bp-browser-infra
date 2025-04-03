@@ -86,6 +86,8 @@ async def poll_task_status(
                     # 将data参数改为json格式
                     json={
                         "taskId": task_id,
+                        "uniqueId": final_result["name"],
+                        "cid": final_result["cid"],
                         "GMV": final_result["gmv"],
                         "avgVideoViews": final_result["avg_video_views"],
                     },
