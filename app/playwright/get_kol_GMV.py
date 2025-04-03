@@ -23,7 +23,7 @@ async def poll_task_status(
     :param task_manager: TaskManager实例
     :param timeout: 超时时间（秒）
     :param poll_interval: 轮询间隔（秒）
-    :return: 任务结果或None（如果超时）
+    :return: 任务结果或''（如果超时）
     """
     start_time = asyncio.get_event_loop().time()
     poll_count = 0
@@ -50,7 +50,7 @@ async def poll_task_status(
             )
             # 调用外部接口
             http_client.post(
-                "/tts/kol", data={"taskId": task_id, "GMV": None, "avgVideoViews": None}
+                "/tts/kol", json={"taskId": task_id, "GMV": "", "avgVideoViews": ""}
             )
             return None
 
@@ -72,37 +72,40 @@ async def poll_task_status(
                 response=task_status.task_response,
                 total_polls=poll_count,
             )
+
             print("--------------| 达人信息 JSON |--------------")
             print(task_status.task_response)
-            # print(json.loads(task_status.task_response))
-            print(json.loads(json.loads(task_status.task_response)["final_result"]))
-            print("------------------------------------------------")
-
-            final_result = json.loads(
-                json.loads(task_status.task_response)["final_result"]
-            )
-
-            # 调用外部接口
-            response = http_client.post(
-                "/tts/kol",
-                # 将data参数改为json格式
-                json={
-                    "taskId": task_id,
-                    "GMV": final_result["gmv"],
-                    "avgVideoViews": final_result["avg_video_views"],
-                },
-            )
-            if response.status_code == 200:
-                response_data = response.json()
-                log.info("External API call succeeded", response=response_data)
-            else:
-                error = response.text
-                log.error(
-                    "External API call failed",
-                    status=response.status_code,
-                    error=error,
+            try:
+                # print(json.loads(task_status.task_response))
+                final_result = json.loads(
+                    json.loads(task_status.task_response)["final_result"]
                 )
-                raise Exception(f"API call failed: {error}")
+                # 调用外部接口
+                response = http_client.post(
+                    "/tts/kol",
+                    # 将data参数改为json格式
+                    json={
+                        "taskId": task_id,
+                        "GMV": final_result["gmv"],
+                        "avgVideoViews": final_result["avg_video_views"],
+                    },
+                )
+                if response.status_code == 200:
+                    response_data = response.json()
+                    log.info("External API call succeeded", response=response_data)
+                else:
+                    error = response.text
+                    log.error(
+                        "External API call failed",
+                        status=response.status_code,
+                        error=error,
+                    )
+                    raise Exception(f"API call failed: {error}")
+
+            except json.JSONDecodeError as e:
+                log.error("JSON解析失败", error=str(e))
+                raise Exception(f"JSON解析失败: {str(e)}")
+            print("------------------------------------------------")
 
             return task_status.task_response
         elif task_status.task_status == BrowserTaskStatus.FAILED:
@@ -114,7 +117,7 @@ async def poll_task_status(
             )
             # 调用外部接口
             http_client.post(
-                "/tts/kol", data={"taskId": task_id, "GMV": None, "avgVideoViews": None}
+                "/tts/kol", json={"taskId": task_id, "GMV": "", "avgVideoViews": ""}
             )
             raise Exception(task_status.task_response)
 
