@@ -179,14 +179,14 @@ class BrowserWorker:
             # 根据 task_type 处理不同的 Playwright 任务
             if task.task_type == TTSPlaywrightTaskType.DOWNLOAD_GMV_CSV:
                 # 实现下载 GMV CSV 的逻辑
-                # directory_path = await download_gmv_csv()
-                directory_path = "/Users/macbookpro/Downloads/chromdownload";
+                directory_path = await download_gmv_csv()
+                # directory_path = "/Users/macbookpro/Downloads/chromdownload";
                 # 获取 task_manager 实例
-                task_manager = await get_task_manager()  # 获取 TaskManager 实例
-                mysql_pool = task_manager.mysql_pool
+                # task_manager = await get_task_manager()  # 获取 TaskManager 实例
+                # mysql_pool = task_manager.mysql_pool
                 #  调用解析并入库方法
-                success = await parse_and_insert_video_performance_data(directory_path, mysql_pool, log_ctx)
-                if success:
+                # success = await parse_and_insert_video_performance_data(directory_path, mysql_pool, log_ctx)
+                if True:
                     return RawResponse(
                         total_duration_seconds=0.0,
                         total_input_tokens=0,
