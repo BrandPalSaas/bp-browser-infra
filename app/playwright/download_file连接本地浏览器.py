@@ -3,9 +3,7 @@ from playwright.async_api import async_playwright, TimeoutError
 import asyncio
 import subprocess
 import time
-import json
 
-# chrome_path = r'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 chrome_path = r'"C:\Program Files\Google\Chrome\Application\chrome.exe"'
 debugging_port = "--remote-debugging-port=9222"
 
@@ -21,21 +19,19 @@ async def connect_to_browser(p, max_retries=5, delay=1):
             print(f"Connection attempt {attempt + 1} failed, retrying in {delay} seconds...")
             await asyncio.sleep(delay)
 
-async def download_gmv_csv(cookies_json:json):
+async def download_gmv_csv():
     """下载 GMV CSV 文件的主逻辑"""
     async with async_playwright() as p:
         print('Launching Chrome browser...')
         subprocess.Popen(f"{chrome_path} {debugging_port}")
-        # subprocess.Popen([chrome_path,debugging_port])
+        
         try:
             print('Connecting to browser...')
             browser = await connect_to_browser(p)
             context = browser.contexts[0] if browser.contexts else await browser.new_context()
             page = context.pages[0] if context.pages else await context.new_page()
-             # 获取cookies file
-            if cookies_json:
-                print('cookies--------------------------', cookies_json)
-                await context.add_cookies(cookies_json)  # 将 cookies 添加到浏览器上下文
+
+            # ... rest of the existing download logic ...
             
         except TimeoutError:
             print("Connection timed out. Please ensure Chrome is running with remote debugging enabled.")
@@ -47,36 +43,25 @@ async def download_gmv_csv(cookies_json:json):
         browser = await p.chromium.connect_over_cdp("http://127.0.0.1:9222")
         context = browser.contexts[0] if browser.contexts else await browser.new_context()
         page = context.pages[0] if context.pages else await context.new_page()
-
-        # 获取cookies file
-        if cookies_json:
-            print('cookies--------------------------', cookies_json)
-            # 将 cookies 添加到浏览器上下文
-            await context.add_cookies(cookies_json)
-
+        
+        browser = await p.chromium.launch_persistent_context(
+            user_data_dir='./user_data',
+        )
+      
         # 创建 Future 对象用于等待下载开始
         download_future = asyncio.Future()
-
+        
         def handle_download(download):
             print(f"Download started: {download.url}")
-
-            # 获取下载文件的路径
-            download_path = download.path()  # 获取文件的下载路径
-            download_filename = download.suggested_filename()  # 获取下载的文件名
-            # 拼接文件路径和文件名
-            full_file_path = f"{download_path}/{download_filename}"
-            print(f"Download file path: {download_path}")
-            print(f"Download file name: {download_filename}")
-
             # 设置 Future 的结果
             download_future.set_result({
                 'status': 'success',
-                'download_url': download.url,
-                'full_file_path': full_file_path  # 返回完整的文件路径（路径 + 文件名）
+                'download_url': download.url
             })
-
+            browser.close()
+        
         # 设置下载事件监听器
-        page.on('download',handle_download)
+        page.on('download', handle_download)
         
         # 访问一个tts 网页
         await asyncio.sleep(5)
@@ -127,7 +112,7 @@ async def download_gmv_csv(cookies_json:json):
             await button.click()
             print('点击下载按钮')
         except Exception as e:
-            return {"status": "success", "message": '文件下载成功'}
+            return {"status": "success", "message": e}
         
         # 等待下载开始并返回结果
         return await download_future

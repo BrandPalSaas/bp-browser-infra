@@ -205,6 +205,42 @@ class BrowserWorker:
                         final_result="解析或入库失败"
                     )
                 return raw_response
+
+                self._cookies_file = await self._login_manager.save_login_cookies_to_tmp_file(self._shop)
+                if self._cookies_file:
+                    # 解析 cookies 文件并回填到浏览器
+                    with open(self._cookies_file, 'r') as f:
+                        cookies = json.load(f)
+                        download_result= await download_gmv_csv(cookies)
+                        # 实现下载 GMV CSV 的逻辑
+                        download_result = await download_gmv_csv()
+                        # download_result = "/Users/macbookpro/Downloads/Video Performance List_20250402104906.xlsx";
+                        # 获取 task_manager 实例
+                        task_manager = await get_task_manager()  # 获取 TaskManager 实例
+                        mysql_pool = task_manager.mysql_pool
+                        #  调用解析并入库方法
+                        success = await parse_and_insert_video_performance_data(download_result, mysql_pool, log_ctx)
+                        if success:
+                            return RawResponse(
+                                total_duration_seconds=0.0,
+                                total_input_tokens=0,
+                                num_of_steps=0,
+                                is_successful=True,
+                                has_errors=False,
+                                final_result="CSV 数据下载并成功入库"
+                            )
+                        else:
+                            return RawResponse(
+                                total_duration_seconds=0.0,
+                                total_input_tokens=0,
+                                num_of_steps=0,
+                                is_successful=False,
+                                has_errors=True,
+                                final_result="解析或入库失败"
+                            )
+                else:
+                    log.error("Failed to save login cookies to tmp file", shop=self._shop)
+                    raise ValueError("Failed to save login cookies to tmp file")
             else:
                 raise ValueError(f"Unsupported playwright task type: {task.task_type}")
 
@@ -258,6 +294,7 @@ class BrowserWorker:
     async def shutdown(self):
         """Shutdown the browser worker."""
         self._running = False
+        print('关闭浏览器')
         await self._browser.close()
         log.info("Browser worker shutdown complete")
 

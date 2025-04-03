@@ -55,4 +55,4 @@ coverage.xml
 *.log 
 
 # Environment
-/user_data
+/user_data/*

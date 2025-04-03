@@ -52,6 +52,7 @@ class TTSLoginManager:
         return await task_manager.get_cookies(shop.bind_user_email)
 
     async def save_login_cookies_to_tmp_file(self, shop: TTShop) -> Optional[str]:
+        print(shop, 'shop------------------------1')
         cookies = await self.get_login_cookies(shop)
         if cookies:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode='w') as f:

@@ -5,7 +5,6 @@ import subprocess
 import time
 import json
 
-# chrome_path = r'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 chrome_path = r'"C:\Program Files\Google\Chrome\Application\chrome.exe"'
 debugging_port = "--remote-debugging-port=9222"
 
@@ -26,7 +25,7 @@ async def download_gmv_csv(cookies_json:json):
     async with async_playwright() as p:
         print('Launching Chrome browser...')
         subprocess.Popen(f"{chrome_path} {debugging_port}")
-        # subprocess.Popen([chrome_path,debugging_port])
+        
         try:
             print('Connecting to browser...')
             browser = await connect_to_browser(p)
@@ -51,12 +50,11 @@ async def download_gmv_csv(cookies_json:json):
         # 获取cookies file
         if cookies_json:
             print('cookies--------------------------', cookies_json)
-            # 将 cookies 添加到浏览器上下文
-            await context.add_cookies(cookies_json)
-
+            await context.add_cookies(cookies_json)  # 将 cookies 添加到浏览器上下文
+                
         # 创建 Future 对象用于等待下载开始
         download_future = asyncio.Future()
-
+        
         def handle_download(download):
             print(f"Download started: {download.url}")
 
@@ -71,10 +69,11 @@ async def download_gmv_csv(cookies_json:json):
             # 设置 Future 的结果
             download_future.set_result({
                 'status': 'success',
+                'status': 'success',
                 'download_url': download.url,
                 'full_file_path': full_file_path  # 返回完整的文件路径（路径 + 文件名）
             })
-
+        
         # 设置下载事件监听器
         page.on('download',handle_download)
         
